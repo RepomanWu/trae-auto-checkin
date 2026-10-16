@@ -1,0 +1,24 @@
+{
+  "checkin": {
+    "req_source": 1,
+    "app_dirs": ["Trae CN"],
+    "extra_paths": [],
+    "device_id_fallback": ""
+  },
+  "notify": {
+    "enabled": true,
+    "email": {
+      "enabled": false,
+      "smtp_host": "smtp.163.com",
+      "smtp_port": 465,
+      "use_ssl": true,
+      "from": "YOUR_SEND_EMAIL@163.com",
+      "auth_code": "YOUR_AUTH_CODE",
+      "to": ["YOUR_RECEIVER_EMAIL@qq.com"]
+    },
+    "wecom": {
+      "enabled": true,
+      "webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY"
+    }
+  }
+}
