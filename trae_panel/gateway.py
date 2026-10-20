@@ -143,10 +143,14 @@ def chat_events(account: dict, device_cfg: dict, model_name: str, messages: list
     if r.status_code != 200:
         raise GatewayError("上游 HTTP {} {}".format(r.status_code, (r.text or "")[:200]))
     event = None
-    for line in r.iter_lines(decode_unicode=True):
+    # 按字节读、显式 UTF-8 解码：上游 SSE 常返回 `text/event-stream`（不带 charset），
+    # requests 会默认按 ISO-8859-1 解，用 decode_unicode=True 会把中文解成乱码。
+    for raw_line in r.iter_lines(decode_unicode=False):
+        if raw_line is None:
+            continue
+        line = raw_line.decode("utf-8", "replace").strip()
         if not line:
             continue
-        line = line.strip()
         if line.startswith("event:"):
             event = line[6:].strip()
         elif line.startswith("data:"):
@@ -333,8 +337,8 @@ def openai_upstream_chat(account: dict, model: str, messages: list, stream: bool
 
 
 def relay_stream(resp):
-    """把上游 SSE 原样转出（保持 OpenAI 帧格式）。"""
-    for raw in resp.iter_lines(decode_unicode=True):
+    """把上游 SSE 原样转出（按 UTF-8 显式解码，避免 requests 用 latin-1 解出乱码）。"""
+    for raw in resp.iter_lines(decode_unicode=False, delimiter=b"\n"):
         if raw is None:
             continue
-        yield raw + "\n"
+        yield raw.decode("utf-8", "replace") + "\n"

@@ -66,7 +66,8 @@ class TraeClient:
             try:
                 data = r.json()
             except ValueError:
-                raise RuntimeError("HTTP {}: {}".format(r.status_code, r.text[:200]))
+                raise RuntimeError("HTTP {}: {}".format(
+                    r.status_code, r.content.decode("utf-8", "replace")[:200]))
             if r.status_code >= 400:
                 raise RuntimeError("HTTP {}: {}".format(
                     r.status_code, json.dumps(data, ensure_ascii=False)[:200]))

@@ -181,7 +181,7 @@ def _call(method: str, url: str, headers: dict, body=None, timeout: int = 30):
                              json=body if body is not None else None, timeout=timeout)
     except requests.RequestException as e:
         raise WBError(0, "网络请求失败：{}".format(e))
-    text = (r.text or "")[:300]
+    text = r.content.decode("utf-8", "replace")[:300]      # 显式 UTF-8，避免 r.text 按 latin-1 解出乱码
     if r.status_code >= 400:
         raise WBError(r.status_code, "HTTP {} {}".format(r.status_code, text))
     try:

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -386,9 +387,11 @@ async def v1_chat_completions(request: Request):
             return StreamingResponse(gateway.relay_stream(resp), media_type="text/event-stream",
                                      headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
         try:
-            return JSONResponse(resp.json())
+            # 显式 UTF-8 解码：上游若声明 text/* 又不带 charset，requests 会按 latin-1 解出乱码
+            return JSONResponse(json.loads(resp.content.decode("utf-8", "replace")))
         except ValueError:
-            raise HTTPException(502, "上游返回非 JSON：{}".format((resp.text or "")[:200]))
+            raise HTTPException(502, "上游返回非 JSON：{}".format(
+                resp.content.decode("utf-8", "replace")[:200]))
 
     accounts = service.gateway_accounts()
     if not accounts:
