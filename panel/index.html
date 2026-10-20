@@ -61,6 +61,10 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
 .guide .gsample code{flex:1;margin:0;padding:6px 8px;line-height:1.6}
 .guide .gsample .btn{flex:none}
 .guide .gtip{margin-top:10px;font-size:12px;color:var(--warn)}
+.guide .gmethod{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:10px;background:var(--bg)}
+.guide .gmtitle{font-size:12.5px;font-weight:600;margin-bottom:6px;color:var(--accent)}
+.guide .gcmd{margin-top:8px;display:flex;gap:8px;align-items:flex-start}
+.guide .gcmd code{flex:1;background:var(--card2);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--fg);word-break:break-all}
 select optgroup{color:var(--muted);font-size:12px}
 </style>
 <script>
@@ -393,6 +397,20 @@ async function loadPlatforms(){
     onPlatformChange();
   }catch(e){ if(e.message!=='unauthorized') toast('平台列表加载失败：'+e.message, true); }
 }
+function guideCopyBtn(){ return '<button class="btn" onclick="copySample(this)">复制</button>'; }
+function guideMethod(m){
+  const steps = (m.steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+  const cmd = m.command
+    ? `<div class="gcmd"><code>${escapeHtml(m.command)}</code>${guideCopyBtn()}</div>` +
+      (m.command_hint ? `<div class="gblock" style="margin-top:6px">${escapeHtml(m.command_hint)}</div>` : '')
+    : '';
+  const sample = m.sample
+    ? `<div class="gblock" style="margin-top:8px"><b>粘贴示例</b>
+         <div class="gsample"><code>${escapeHtml(m.sample)}</code>${guideCopyBtn()}</div></div>`
+    : '';
+  return `<div class="gmethod"><div class="gmtitle">${escapeHtml(m.title || '方式')}</div>` +
+    (steps ? `<ol class="gsteps">${steps}</ol>` : '') + cmd + sample + '</div>';
+}
 function onPlatformChange(){
   const p = PLATFORMS.find(x => x.id === $('#accPlatform').value);
   const box = $('#accGuide');
@@ -402,17 +420,20 @@ function onPlatformChange(){
   const kind = (p.kind === 'api')
     ? '<span class="tag mut">API 型 · 网关上游</span>'
     : '<span class="tag ok">客户端型 · 可签到</span>';
-  const steps = (g.steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+  let body = '';
+  if(g.methods && g.methods.length){
+    body = g.methods.map(guideMethod).join('');       // 多方式并列（如 WorkBuddy 方式一 / 方式二）
+  } else {
+    const steps = (g.steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+    body = (steps ? `<ol class="gsteps">${steps}</ol>` : '');
+    if(g.sample) body += `<div class="gblock"><b>示例</b>（复制后替换成你的真实凭据）
+        <div class="gsample"><code>${escapeHtml(g.sample)}</code>${guideCopyBtn()}</div></div>`;
+  }
   const fmt = g.format
     ? `<div class="gblock"><b>粘贴格式</b><br><code>${escapeHtml(g.format)}</code></div>` : '';
-  const sample = g.sample
-    ? `<div class="gblock"><b>示例</b>（复制后替换成你的真实凭据）
-         <div class="gsample"><code>${escapeHtml(g.sample)}</code>
-         <button class="btn" onclick="copySample(this)">复制</button></div></div>` : '';
   const tip = g.tip ? `<div class="gtip">⚠ ${escapeHtml(g.tip)}</div>` : '';
-  box.innerHTML =
-    `<div class="ghead">导入指引：${escapeHtml(p.name)}${kind}</div>` +
-    (steps ? `<ol class="gsteps">${steps}</ol>` : '') + fmt + sample + tip +
+  box.innerHTML = `<div class="ghead">导入指引：${escapeHtml(p.name)}${kind}</div>` +
+    body + fmt + tip +
     `<div class="gblock"><b>说明</b>：${escapeHtml(p.login || '')}</div>`;
   const ta = $('#accBlob');
   if(ta) ta.placeholder = g.placeholder || p.import_hint || '粘贴凭据内容';
