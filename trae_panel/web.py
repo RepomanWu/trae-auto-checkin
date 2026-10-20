@@ -286,6 +286,16 @@ def api_gateway(x_admin_key: str | None = Header(default=None, alias="X-Admin-Ke
             "keyed_accounts": sum(1 for a in service.gateway_accounts() if a.get("from_client"))}
 
 
+@app.post("/api/gateway/test-model")
+def api_gateway_test_model(payload: dict = Body(...),
+                           x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    model = (payload or {}).get("model") or ""
+    if not model:
+        raise HTTPException(400, "缺少 model")
+    return service.test_gateway_model(model)
+
+
 @app.get("/v1/models")
 def v1_models(request: Request):
     cfg, gw = _gateway_cfg()
@@ -324,7 +334,13 @@ async def v1_chat_completions(request: Request):
     try:
         acc, first, rest = gateway.open_stream(accounts, device_cfg, model, messages, intent, cfg)
     except Exception as e:
-        raise HTTPException(502, "上游调用失败：{}".format(e))
+        msg = str(e)
+        hint = ""
+        if "unknown" in msg.lower():
+            hint = ("｜模型「{}」不被上游聊天接口接受。面板清单里带 / 或 cn: 等前缀的多为自定义/第三方模型，"
+                    "聊天接口用不了；请改用内置模型（seed_m8、deepseek-V3 等），"
+                    "或用「API 接入」里的「测试」按钮逐个实测。").format(requested)
+        raise HTTPException(502, "上游调用失败：{}{}".format(msg, hint))
     log("网关命中账号「{}」→ 模型 {}（请求 {}）".format(
         acc.get("label"), model, requested or "-"), "gateway")
     if stream:

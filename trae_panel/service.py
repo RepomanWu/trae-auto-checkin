@@ -147,6 +147,30 @@ def gateway_models(cfg: dict) -> list:
     return [{"name": k, "display_name": v} for k, v in out.items()]
 
 
+def test_gateway_model(model: str) -> dict:
+    """实测某个模型能否走通上游聊天接口（会消耗极少量积分）。"""
+    cfg = load_config()
+    gw = cfg.get("gateway") or {}
+    device_cfg = cfg.get("device") or {}
+    accounts = gateway_accounts()
+    if not accounts:
+        return {"ok": False, "detail": "还没有导入账号"}
+    try:
+        acc, first, rest = gateway.open_stream(
+            accounts, device_cfg, model, [{"role": "user", "content": "ping"}],
+            gw.get("intent") or "explain_code", cfg)
+    except Exception as e:
+        detail = str(e)
+        if "unknown" in detail.lower():
+            detail += "（该名字更像自定义/第三方模型，上游聊天接口不接受）"
+        return {"ok": False, "detail": detail}
+    try:
+        gateway.collect_non_stream(model, first, rest)   # 读完并关闭连接
+    except Exception:
+        pass
+    return {"ok": True, "detail": "可用", "account": acc.get("label")}
+
+
 # ---- 用量快照 ----
 def _snapshot_usage(account: dict, client: TraeClient, req_source: int) -> dict:
     data = user_usage(client, req_source)

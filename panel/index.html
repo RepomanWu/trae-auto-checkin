@@ -160,6 +160,7 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
     <div class="panel">
       <h3>可用模型 <span class="muted" style="font-size:12px" id="gwStat"></span></h3>
       <table><thead><tr><th>模型 ID（填这个）</th><th>显示名</th><th>操作</th></tr></thead><tbody id="gwModels"></tbody></table>
+      <p class="muted" style="font-size:12px;margin-top:8px">带 <code>/</code>、<code>cn:</code> 等前缀的多是<b>自定义/第三方模型</b>，聊天接口通常调不通；不确定就点「测试」实测（会用掉极少量积分）。</p>
     </div>
     <div class="panel">
       <h3>接入示例</h3>
@@ -434,7 +435,9 @@ async function loadGateway(){
     const models = d.models || [];
     $('#gwModels').innerHTML = models.length ? models.map(m =>
       `<tr><td><code>${m.name}</code></td><td>${m.display_name}</td>
-       <td><button class="btn" onclick="copyText('${m.name}')">复制</button></td></tr>`).join('')
+       <td><button class="btn" onclick="copyText('${m.name}')">复制</button>
+           <button class="btn" onclick="testModel('${esc(m.name)}', this)">测试</button>
+           <span class="tag mut">未测</span></td></tr>`).join('')
       : '<tr><td colspan="3" class="muted">暂无模型（请先在「账号」导入账号，且建议用 export_local.py 的 JSON 以带上真实设备指纹）</td></tr>';
     const first = models[0] ? models[0].name : 'deepseek-V3';
     const keyv = d.api_key || '<你的key>';
@@ -445,6 +448,21 @@ async function loadGateway(){
   }catch(e){ if(e.message!=='unauthorized') toast('网关信息加载失败：'+e.message, true); }
 }
 function esc(s){ return String(s).replace(/'/g, ""); }
+async function testModel(name, btn){
+  const tag = btn.nextElementSibling;
+  btn.disabled = true;
+  tag.textContent = '测试中…'; tag.className = 'tag mut';
+  try{
+    const r = await api('/api/gateway/test-model','POST',{model:name});
+    tag.textContent = r.ok ? '✓ 可用' : '✗ 不可用';
+    tag.className = 'tag ' + (r.ok ? 'ok' : 'bad');
+    tag.title = r.detail || '';
+    if(!r.ok) toast(name + '：' + (r.detail || '不可用'), true);
+  }catch(e){
+    tag.textContent = '✗ 失败'; tag.className = 'tag bad'; tag.title = e.message;
+  }
+  btn.disabled = false;
+}
 async function saveGateway(){
   try{
     await api('/api/config','POST',{ gateway: {

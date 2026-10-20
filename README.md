@@ -174,6 +174,16 @@ Cline、LangChain、OpenAI SDK 等直接调用，**消耗的是你的 Trae 积�
 已实现 `GET /v1/models` 与 `POST /v1/chat/completions`（流式 SSE / 非流式）。
 多账号按顺序尝试，某个号失败自动换下一个；`<think>` 形式回传思考过程。
 
+> **模型 ID 怎么选**：清单里的模型分两类——
+> - **内置预设模型**：`seed_m8`、`Doubao_1_5_thinking_pro`、`deepseek-V3`、`deepseek-V3-0324`
+>   等，聊天接口可以正常调用；
+> - **自定义 / 第三方模型**：名字里带 `/`、`cn:` 等前缀的（如 `openai/gpt-oss-120b`、
+>   `microsoft/phi-4-mini-instruct`、`xopdeepseekv4flash`、`cn: deepseek-v4-flash`），
+>   虽然也会出现在清单里，但上游聊天接口**不接受**它们的 `model_name`，调用会返回
+>   `the model is unknown`。
+>
+> 不确定某个模型能不能用时，在「API 接入」列表里点该行的「**测试**」按钮实测（消耗极少量积分）。
+
 ```bash
 curl http://<服务器IP>:7864/v1/chat/completions \
   -H "Authorization: Bearer <你的key>" -H "Content-Type: application/json" \
