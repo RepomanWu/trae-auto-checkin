@@ -96,21 +96,55 @@ PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 ## 添加账号（关键步骤）
 
-服务器上没有 Trae 客户端，需要从**你本机**导出登录态密文：
+服务器上没有 Trae 客户端，登录态需要从**你本机**（已登录 Trae 客户端的那台机器）导出。
+登录态密文存在客户端本地文件里，键名固定为 `iCubeAuthInfo://icube.cloudide`。
+下面两种方式任选其一。
 
-1. 在本机（已登录 Trae 客户端的机器）运行：
+### 方式 A：用导出脚本（推荐）
+
+1. 在本机进入项目目录，安装依赖后运行：
 
    ```bash
    pip install cryptography
    python export_local.py
    ```
 
-   它会扫描 `Trae CN` / `TRAE SOLO CN` / `Trae` 等目录，输出 `trae_export.json`，
-   并把每个账号的**密文**打印到终端。
+   脚本会扫描 `%APPDATA%` 下的 `Trae CN` / `TRAE SOLO CN` / `Trae` / `TRAE SOLO`，
+   输出 `trae_export.json`，并把每个账号的**密文**打印到终端（形如 `dGMFEA...` 的一长串）。
 
-2. 打开面板 → 「账号」→ 粘贴密文 →（可选）填备注名 → 「导入账号」。
+2. 复制终端里打印的整串密文，打开面板 →「账号」→ 粘贴到「登录态密文」→（可选）填备注名 →「导入账号」。
 
-   服务端解密后保存凭证。密文只在你的本机与你的服务器之间流转，不经过第三方。
+   > 脚本只扫描**当前 Windows 账号**的 `%APPDATA%`。如果 Trae 是在别的账号下登录的，
+   > 请切到那个账号再运行，或用下面的方式 B。
+
+### 方式 B：手动从 storage.json 复制密文
+
+不跑脚本也行，直接从客户端存储文件里取：
+
+1. 用任意文本编辑器打开这个文件（把 `Trae CN` 换成你实际的客户端目录名）：
+
+   ```
+   %APPDATA%\Trae CN\User\globalStorage\storage.json
+   ```
+
+   完整路径形如 `C:\Users\<你的用户名>\AppData\Roaming\Trae CN\User\globalStorage\storage.json`。
+
+2. 搜索 `icube.cloudide`，找到键名为 `iCubeAuthInfo://icube.cloudide` 的那一行，
+   它右边是一长串 base64 密文：
+
+   ![在 storage.json 中定位 iCubeAuthInfo://icube.cloudide](docs/import-account/storage-json.png)
+
+   （图中红框是键名，"值"的部分已打码；你打开时那里是真实密文。）
+
+3. 复制**值**：从该键后面第一个双引号，到这一行结尾的那个双引号为止，整段都要。
+   通常有 2000 多个字符，注意别漏掉结尾，也别把引号复制进去。
+
+4. 粘贴到面板 →「账号」→「登录态密文」→「导入账号」。
+
+导入后服务端会解密并保存凭证。密文只在你本机与你自己服务器之间流转，不经过第三方。
+
+> ⚠️ `storage.json` 与 `trae_export.json` 都含可解出账号令牌的密文，属敏感文件：
+> 不要提交到仓库、不要发给他人；导入完成后建议删除 `trae_export.json`。
 
 ## 配置（key 与来源）
 
