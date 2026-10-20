@@ -403,16 +403,30 @@ async def v1_chat_completions(request: Request):
         models = []
     model = gateway.resolve_model(requested, models, cfg)
     intent = gw.get("intent") or "explain_code"
+    if not model:
+        raise HTTPException(502, "取不到可用模型清单（Trae 账号登录态可能已过期）。"
+                                 "请到「API 接入」页确认模型列表是否为空，并重新导入 Trae 账号（整份 storage.json）后重试")
     try:
         acc, first, rest = gateway.open_stream(accounts, device_cfg, model, messages, intent, cfg)
     except Exception as e:
-        msg = str(e)
-        hint = ""
-        if "unknown" in msg.lower():
-            hint = ("｜模型「{}」不被上游聊天接口接受。面板清单里带 / 或 cn: 等前缀的多为自定义/第三方模型，"
-                    "聊天接口用不了；请改用内置模型（seed_m8、deepseek-V3 等），"
-                    "或用「API 接入」里的「测试」按钮逐个实测。").format(requested)
-        raise HTTPException(502, "上游调用失败：{}{}".format(msg, hint))
+        fb = gateway.fallback_model(cfg, models)
+        if fb and fb != model and gateway.is_unknown_model(e):
+            # Trae 只认内置预设模型名：自定义/第三方名被拒时，自动回退到内置模型重试一次
+            log("模型「{}」不被上游接受，自动回退到内置模型「{}」重试（请求 {}）".format(
+                model, fb, requested or "-"), "gateway")
+            model = fb
+            try:
+                acc, first, rest = gateway.open_stream(accounts, device_cfg, model, messages, intent, cfg)
+            except Exception as e2:
+                raise HTTPException(502, "上游调用失败（已尝试回退模型 {}）：{}".format(fb, e2))
+        else:
+            msg = str(e)
+            hint = ""
+            if gateway.is_unknown_model(e):
+                hint = ("｜模型「{}」不被上游聊天接口接受。带 / 或 cn: 等前缀的多为自定义/第三方模型；"
+                        "请改用内置预设模型，或在网关配置的 model_aliases 里把它映射到内置模型名，"
+                        "再用「API 接入」页的「测试」按钮逐个实测。").format(requested)
+            raise HTTPException(502, "上游调用失败：{}{}".format(msg, hint))
     log("网关命中账号「{}」→ 模型 {}（请求 {}）".format(
         acc.get("label"), model, requested or "-"), "gateway")
     if stream:

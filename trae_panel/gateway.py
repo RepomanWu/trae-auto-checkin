@@ -67,25 +67,57 @@ def fetch_models(account: dict, device_cfg: dict, cfg: dict, use_cache: bool = T
     return models
 
 
+def _fallback_model(gw: dict, models: list) -> str:
+    """兜底模型：配置的 default_model > 首个「内置预设」模型 > 清单首个模型。"""
+    fb = (gw.get("default_model") or "").strip()
+    if fb:
+        return fb
+    presets = [m["name"] for m in models if m.get("preset")]
+    if presets:
+        return presets[0]
+    return models[0]["name"] if models else ""
+
+
 def resolve_model(requested: str, models: list, cfg: dict) -> str:
-    """把客户端请求的模型名解析成上游 model_name。"""
+    """把客户端请求的模型名解析成上游 model_name。
+
+    优先级：别名 > 精确命中 > 忽略大小写命中 > 模糊命中（优先内置预设）> 兜底模型。
+
+    注意：**绝不**在「清单里没有这个名字」时把原始字符串直接透传给上游——Trae 上游
+    只认内置预设模型的 model_name，透传自定义名（如 `cn:xxx`）会得到
+    "the model is unknown"。清单为空/取不到时返回兜底模型，由调用方决定怎么报错。
+    """
     gw = cfg.get("gateway") or {}
     aliases = gw.get("model_aliases") or {}
     names = [m["name"] for m in models]
     if not requested:
-        return gw.get("default_model") or (names[0] if names else "")
+        return _fallback_model(gw, models)
     if requested in aliases:
         return aliases[requested]
     if requested in names:
         return requested
     low = requested.lower()
-    for m in models:                       # display_name 模糊匹配
+    # 精确忽略大小写
+    for m in models:
         if m["display_name"].lower() == low or m["name"].lower() == low:
             return m["name"]
-    for m in models:
-        if low in m["display_name"].lower() or low in m["name"].lower():
+    # 模糊命中：内置预设优先，避免把自定义名解析到另一个自定义名
+    for m in sorted(models, key=lambda x: not x.get("preset")):
+        nm, dn = m["name"].lower(), m["display_name"].lower()
+        if low in nm or low in dn or nm in low or dn in low:
             return m["name"]
-    return gw.get("default_model") or (names[0] if names else requested)
+    return _fallback_model(gw, models)
+
+
+def is_unknown_model(err) -> bool:
+    """上游是否因「模型名不认识」而拒绝（Trae 对自定义/第三方模型名会这么回）。"""
+    s = str(err).lower()
+    return "unknown" in s or "不支持的模型" in s
+
+
+def fallback_model(cfg: dict, models: list) -> str:
+    """给 web 层用的兜底模型（与 resolve_model 末段同一口径）。"""
+    return _fallback_model(cfg.get("gateway") or {}, models)
 
 
 # ---- 上游对话 ----
