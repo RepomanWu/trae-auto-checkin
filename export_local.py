@@ -77,9 +77,9 @@ def main():
     for e in entries:
         print("  - {}（uid={}）{}".format(e.get("label"), e.get("uid"),
                                          "解密失败：" + e["decrypt_error"] if e.get("decrypt_error") else ""))
-        print("    密文（可粘贴到面板添加账号）：")
-        print("    " + e["blob"])
-    print("\n注意：该文件含登录态密文（可解出令牌），请勿外传，导入后删除。")
+        print("    把下面这一整行 JSON 粘贴到面板「账号」→「登录态密文」（含真实设备指纹，OpenAI 网关必需）：")
+        print("    " + json.dumps(e, ensure_ascii=False))
+    print("\n提示：带真实设备指纹的 JSON 是网关必需的；该文件与上面的输出都含可解出令牌的密文，请勿外传，导入后删除。")
     return 0
 
 
