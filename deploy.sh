@@ -19,7 +19,7 @@ fi
 
 if [ ! -f .env ]; then
   KEY="${ADMIN_KEY:-$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)}"
-  PORT_VAL="${PORT:-7860}"
+  PORT_VAL="${PORT:-7864}"
   cat > .env <<EOF
 ADMIN_KEY=$KEY
 PORT=$PORT_VAL
@@ -34,7 +34,7 @@ EOF
 else
   # shellcheck disable=SC1091
   PORT_VAL="$(grep -E '^PORT=' .env | cut -d= -f2 || true)"
-  PORT_VAL="${PORT_VAL:-7860}"
+  PORT_VAL="${PORT_VAL:-7864}"
   echo "==> 检测到已有 .env，沿用现有配置"
 fi
 

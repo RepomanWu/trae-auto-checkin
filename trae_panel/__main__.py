@@ -12,7 +12,7 @@ def main() -> None:
     cfg = load_config()
     listen = cfg.get("listen") or {}
     host = listen.get("host", "0.0.0.0")
-    port = int(listen.get("port", 7860))
+    port = int(listen.get("port", 7864))
     uvicorn.run("trae_panel.web:app", host=host, port=port, log_level="info")
 
 

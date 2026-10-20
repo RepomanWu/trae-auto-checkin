@@ -21,7 +21,7 @@ LOG_FILE = DATA_DIR / "panel.log"
 DEFAULT_CONFIG = {
     # 面板访问密钥（key）：留空表示不校验（仅建议内网/本机使用）
     "admin_key": "",
-    "listen": {"host": "0.0.0.0", "port": 7860},
+    "listen": {"host": "0.0.0.0", "port": 7864},
     # 签到来源：1=Trae CN(IDE/Work)，2=SOLO/企业版
     "req_source": 1,
     # 可选：强制覆盖账号自带的 region（一般留空，跟随登录态）

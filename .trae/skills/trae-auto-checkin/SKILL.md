@@ -79,7 +79,7 @@ Panel → 设置 (saved values take effect immediately, no restart):
 |---|---|
 | 登录态已失效 / refresh failed | Re-sign-in in the Trae client, run `export_local.py` again, re-import |
 | 签到 enable=false | Account not eligible or activity changed; read the raw response in 运行日志 |
-| Panel unreachable | Check `docker compose logs -f`, the container is listening on 7860 inside; verify the mapped port and firewall |
+| Panel unreachable | Check `docker compose logs -f`, the container is listening on 7864 inside; verify the mapped port and firewall |
 | Build stuck pulling `python:3.11-slim` on a China server | Network speed, not a hang. Configure a Docker registry mirror, or set `PYTHON_BASE` and `PIP_INDEX_URL` in `.env`; see README 国内服务器加速 |
 | Credits look low | Credits are the daily check-in reward; the account balance comes from the usage endpoint, shown in 用量 |
 

@@ -42,7 +42,7 @@ cd trae-checkin
 ```
 
 `deploy.sh` 会自动生成 `.env`（含随机面板密钥）并 `docker compose up -d --build`。
-完成后输出面板地址，浏览器打开 `http://<服务器IP>:7860`，输入 `.env` 里的 `ADMIN_KEY` 即可。
+完成后输出面板地址，浏览器打开 `http://<服务器IP>:7864`，输入 `.env` 里的 `ADMIN_KEY` 即可。
 
 手动方式：
 
@@ -154,7 +154,7 @@ Dockerfile / docker-compose.yml / deploy.sh / .env.example
 
 ```bash
 pip install -r requirements.txt
-python -m trae_panel          # 监听 0.0.0.0:7860
+python -m trae_panel          # 监听 0.0.0.0:7864
 ```
 
 本机想保留原有的 Windows 定时签到脚本，见文末「本机脚本」。

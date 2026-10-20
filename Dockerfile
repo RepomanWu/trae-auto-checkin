@@ -16,6 +16,6 @@ RUN pip install --no-cache-dir --default-timeout=300 -i ${PIP_INDEX_URL} -r requ
 COPY . .
 
 VOLUME ["/data"]
-EXPOSE 7860
+EXPOSE 7864
 
 CMD ["python", "-m", "trae_panel"]
