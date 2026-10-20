@@ -146,6 +146,37 @@ def api_delete_account(account_id: str,
     return {"ok": True}
 
 
+# ---- 平台内「一键登录」（设备授权，如 WorkBuddy）----
+def _platform_login_fn(platform: str, name: str):
+    ad = platforms.adapter(platform)
+    fn = getattr(ad, name, None) if ad else None
+    if fn is None:
+        raise HTTPException(400, "「{}」不支持面板内一键登录".format(
+            platforms.get(platform).get("name")))
+    return fn
+
+
+@app.post("/api/platforms/{platform}/login/start")
+def api_platform_login_start(platform: str, payload: dict = Body(default_factory=dict),
+                             x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    fn = _platform_login_fn(platform, "login_start")
+    try:
+        return fn((payload or {}).get("realm") or "cn")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, "发起登录失败：{}".format(e))
+
+
+@app.post("/api/platforms/{platform}/login/poll")
+def api_platform_login_poll(platform: str, payload: dict = Body(default_factory=dict),
+                            x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    fn = _platform_login_fn(platform, "login_poll")
+    return fn((payload or {}).get("state") or "", (payload or {}).get("realm") or "cn")
+
+
 # ---- 签到 / 用量 ----
 @app.post("/api/checkin")
 def api_checkin(payload: dict = Body(default_factory=dict),

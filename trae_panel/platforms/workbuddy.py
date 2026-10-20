@@ -26,6 +26,7 @@ import random
 import secrets
 import time
 import uuid
+from urllib.parse import quote
 
 import requests
 
@@ -261,6 +262,87 @@ def import_account(raw: str, label: str = "") -> dict:
         "device_token": device_token,
     }
     return account
+
+
+# ---- 设备授权登录（面板内「一键登录」用）----
+LOGIN_UA = "CLI/2.63.2 CodeBuddy/2.63.2"
+
+
+def _login_base(realm: str):
+    return (GLOBAL, ORIGIN_GLOBAL) if realm == "global" else (CHAT_CN, ORIGIN_CN)
+
+
+def _login_headers(origin: str, token: str = "") -> dict:
+    """设备授权登录流程的头族（与计费域不同：需带 Origin/Referer 与 CLI UA）。"""
+    h = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/plain, */*",
+        "X-Requested-With": "XMLHttpRequest",
+        "Origin": origin,
+        "Referer": origin + "/",
+        "User-Agent": LOGIN_UA,
+    }
+    if token:
+        h["Authorization"] = "Bearer " + token
+    return h
+
+
+def login_start(realm: str = "cn") -> dict:
+    """发起设备授权登录，返回 {state, auth_url, realm}；前端据此打开新窗口授权。"""
+    realm = "global" if (realm or "").lower() == "global" else "cn"
+    base, origin = _login_base(realm)
+    try:
+        data = _call("POST", base + "/v2/plugin/auth/state?platform=CLI",
+                     _login_headers(origin), {})
+    except WBError as e:
+        raise RuntimeError("获取授权链接失败：{}".format(e.msg))
+    state = (data or {}).get("state") or ""
+    url = (data or {}).get("authUrl") or ""
+    if not state or not url:
+        raise RuntimeError("上游未返回 state / authUrl，接口可能已变更")
+    return {"state": state, "auth_url": url, "realm": realm}
+
+
+def login_poll(state: str, realm: str = "cn") -> dict:
+    """轮询一次登录结果；成功则取账号信息并落库。
+
+    未完成返回 {"ok": False, "detail": ...}（HTTP 200，前端继续轮询即可）。
+    """
+    if not (state or "").strip():
+        return {"ok": False, "detail": "缺少 state"}
+    realm = "global" if (realm or "").lower() == "global" else "cn"
+    base, origin = _login_base(realm)
+    qs = "state=" + quote(str(state), safe="")
+    try:
+        tok = _call("GET", base + "/v2/plugin/auth/token?" + qs, _login_headers(origin))
+    except WBError:
+        return {"ok": False, "detail": "等待登录…"}
+    access = (tok or {}).get("accessToken") or ""
+    if not access:
+        return {"ok": False, "detail": "等待登录…"}
+    acct = {}
+    try:
+        acct = _call("GET", base + "/v2/plugin/login/account?" + qs,
+                     _login_headers(origin, access)) or {}
+    except WBError:
+        pass
+    raw = {
+        "access_token": access,
+        "refresh_token": (tok or {}).get("refreshToken") or "",
+        "expires_in": (tok or {}).get("expiresIn") or 0,
+        "domain": (tok or {}).get("domain") or "",
+        "realm": realm,
+        "uid": acct.get("uid") or "",
+        "enterprise_id": acct.get("enterpriseId") or "",
+        "nickname": acct.get("nickname") or "",
+    }
+    account = import_account(json.dumps(raw, ensure_ascii=False), "")
+    from ..store import upsert_account
+    saved = upsert_account(account)
+    log("WorkBuddy 登录成功，账号已写入：{}（uid={}）".format(
+        saved.get("label"), saved.get("uid")), "system")
+    return {"ok": True, "account": {k: v for k, v in saved.items()
+                                    if k not in ("token", "refresh_token", "device_token")}}
 
 
 # ---- token 刷新 ----

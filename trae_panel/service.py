@@ -230,7 +230,7 @@ def _snapshot_usage(account: dict, client: TraeClient, req_source: int) -> dict:
 def refresh_usage(platform=None, account_ids=None, do_notify=False) -> list:
     cfg = load_config()
     accounts = load_accounts()
-    targets = _pick(cfg, platform, account_ids, task_id="usage")
+    targets = _pick(accounts, platform, account_ids, task_id="usage")
     results = []
     for acc in targets:
         label = acc.get("label") or acc.get("uid")
@@ -339,13 +339,15 @@ def _dispatch_usage(acc: dict, cfg: dict):
     return ad.usage(acc, cfg)
 
 
-def _pick(cfg, platform, account_ids, task_id=None):
-    """挑出要处理的账号：只保留「该平台已实现」的，避免调度日志被待接入平台刷屏。
+def _pick(accounts, platform, account_ids, task_id=None):
+    """从**已加载的** accounts 列表里挑出要处理的账号。
 
-    task_id 非空时，还要求该平台在元数据里声明了此任务（未声明的平台跳过）。
+    必须传调用方已经 load 出来的同一份列表：适配器是就地修改传入 account 的 status，
+    如果这里再 load_accounts() 一次，被改的就是另一批 dict 对象，
+    最后 save_accounts() 存不到状态（会出现「提示签到成功、列表却仍显示未签到」）。
     """
     out = []
-    for a in load_accounts():
+    for a in accounts:
         pid = a.get("platform") or "trae"
         if platform and pid != platform:
             continue
@@ -366,7 +368,7 @@ def run_checkin(platform=None, account_ids=None, do_notify=True) -> list:
         log("没有账号，跳过签到", "task")
         return []
     accounts = load_accounts()
-    targets = _pick(cfg, platform, account_ids, task_id="checkin")
+    targets = _pick(accounts, platform, account_ids, task_id="checkin")
     log("开始签到，共 {} 个账号".format(len(targets)), "task")
     results = []
     for acc in targets:
@@ -421,7 +423,7 @@ def run_task(task_id: str, platform=None, account_ids=None, do_notify=False) -> 
     cfg = load_config()
     accounts = load_accounts()
     results = []
-    for acc in _pick(cfg, platform, account_ids, task_id=task_id):
+    for acc in _pick(accounts, platform, account_ids, task_id=task_id):
         pid = acc.get("platform") or "trae"
         meta = platforms.get(pid)
         label = acc.get("label") or acc.get("uid")

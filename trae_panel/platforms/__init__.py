@@ -157,15 +157,14 @@ IMPORT_GUIDES = {
     "workbuddy": {
         "methods": [
             {
-                "title": "方式一 · 在本机运行脚本导出（推荐，不用装客户端）",
+                "title": "方式一 · 面板内一键登录（推荐）",
+                "action": "workbuddy_login",
                 "steps": [
-                    "确保本机装了 Python 3，先安装依赖：pip install requests",
-                    "运行 python export_workbuddy.py（国际版加 --realm global）",
-                    "脚本会打印一条浏览器授权链接：在浏览器里登录 WorkBuddy，再回终端按回车",
-                    "把脚本输出的整行 JSON 粘到下方「凭据内容」，点「导入账号」",
+                    "选择版本（国内版 / 国际版），点「点击登录（新窗口授权）」",
+                    "在弹出的新窗口里用你的 WorkBuddy 账号完成登录",
+                    "登录成功后本面板会自动检测并把账号写入列表，无需手动粘贴；"
+                    "若浏览器拦截了新窗口，请允许弹出窗口后重试（也可用方式二导出）",
                 ],
-                "command": "python export_workbuddy.py",
-                "command_hint": "国际版：python export_workbuddy.py --realm global　｜　只拿授权链接不等待：加 --url-only",
             },
             {
                 "title": "方式二 · 从客户端 / 插件导出",

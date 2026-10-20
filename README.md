@@ -197,19 +197,16 @@ PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 #### WorkBuddy / CodeBuddy（腾讯）
 
 WorkBuddy 桌面端 5.6+ 的本地登录态是**加密的**（解密密钥来自它自己的 Electron，服务器上拿不到），
-所以要在本机导出成明文凭据。两种方式任选：
+凭据有两种获取方式，任选其一。
 
-**方式一：用设备授权登录脚本（推荐，不需要装客户端）**
+**方式一：面板内一键登录（推荐）**
 
-```bash
-pip install requests
-python export_workbuddy.py                 # 国内版
-python export_workbuddy.py --realm global  # 国际版
-```
+1. 面板「账号」→ 平台选 **WorkBuddy / CodeBuddy** → 在「方式一」里选版本（国内版 / 国际版）
+   → 点「**点击登录（新窗口授权）**」。
+2. 在弹出的新窗口里用你的 WorkBuddy 账号完成登录。
+3. 登录成功后面板会**自动检测并把账号写入列表**，无需手动粘贴。
 
-脚本会打印一条**浏览器授权链接** → 在浏览器里登录 → 回到终端按回车 → 输出一整行凭据 JSON。
-把这行 JSON 粘到面板「账号」页（平台选 **WorkBuddy / CodeBuddy**）→「导入账号」即可。
-（只想拿链接不等待时加 `--url-only`。）
+> 若浏览器拦截了新窗口，请允许弹出窗口后重试（面板里也会给出可手动点击的链接）。
 
 **方式二：从客户端 / 插件导出**
 
@@ -229,6 +226,19 @@ python export_workbuddy.py --realm global  # 国际版
 {"access_token":"eyJ…","refresh_token":"eyJ…","expires_in":5184000,
  "domain":"www.codebuddy.cn","realm":"cn","uid":"123456789","nickname":"我的号"}
 ```
+
+**附：命令行导出（可选）**
+
+不想在面板里点登录的话，也可以在本机跑脚本（同样走设备授权流程，输出可直接粘贴的凭据 JSON）：
+
+```bash
+pip install requests
+python export_workbuddy.py                 # 国内版
+python export_workbuddy.py --realm global  # 国际版
+```
+
+脚本会打印一条浏览器授权链接 → 登录 → 回车 → 输出一整行凭据 JSON；
+把它粘到面板即可（只想拿链接不等待时加 `--url-only`）。
 
 #### MiniMax Code
 

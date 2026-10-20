@@ -65,6 +65,10 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
 .guide .gmtitle{font-size:12.5px;font-weight:600;margin-bottom:6px;color:var(--accent)}
 .guide .gcmd{margin-top:8px;display:flex;gap:8px;align-items:flex-start}
 .guide .gcmd code{flex:1;background:var(--card2);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--fg);word-break:break-all}
+.guide .glogin{margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.guide .glogin select{width:auto;min-width:110px}
+.guide .glogin label{margin:0;color:var(--muted);font-size:12px}
+.guide .glogin .gstate{font-size:12px;color:var(--muted)}
 select optgroup{color:var(--muted);font-size:12px}
 </style>
 <script>
@@ -398,6 +402,14 @@ async function loadPlatforms(){
   }catch(e){ if(e.message!=='unauthorized') toast('平台列表加载失败：'+e.message, true); }
 }
 function guideCopyBtn(){ return '<button class="btn" onclick="copySample(this)">复制</button>'; }
+function loginWidget(){
+  return `<div class="glogin">
+    <label>版本</label>
+    <select id="wbRealm"><option value="cn">国内版</option><option value="global">国际版</option></select>
+    <button class="btn primary" id="wbLoginBtn" onclick="wbLoginStart(this)">点击登录（新窗口授权）</button>
+    <span class="gstate" id="wbLoginState"></span>
+  </div>`;
+}
 function guideMethod(m){
   const steps = (m.steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
   const cmd = m.command
@@ -408,11 +420,63 @@ function guideMethod(m){
     ? `<div class="gblock" style="margin-top:8px"><b>粘贴示例</b>
          <div class="gsample"><code>${escapeHtml(m.sample)}</code>${guideCopyBtn()}</div></div>`
     : '';
+  const widget = (m.action === 'workbuddy_login') ? loginWidget() : '';
   return `<div class="gmethod"><div class="gmtitle">${escapeHtml(m.title || '方式')}</div>` +
-    (steps ? `<ol class="gsteps">${steps}</ol>` : '') + cmd + sample + '</div>';
+    (steps ? `<ol class="gsteps">${steps}</ol>` : '') + cmd + sample + widget + '</div>';
+}
+
+// ---- WorkBuddy 面板内一键登录（设备授权）----
+let WB_TIMER = null, WB_STATE = '', WB_REALM = 'cn', WB_TRIES = 0;
+function wbLoginStop(){ if(WB_TIMER){ clearInterval(WB_TIMER); WB_TIMER = null; } }
+async function wbLoginStart(btn){
+  const realmEl = $('#wbRealm'), st = $('#wbLoginState');
+  const realm = realmEl ? realmEl.value : 'cn';
+  wbLoginStop();
+  if(btn) btn.disabled = true;
+  if(st) st.textContent = '正在获取授权链接…';
+  // 先同步开一个空窗口，避免 await 之后失去用户手势导致被拦截
+  let win = null;
+  try{ win = window.open('about:blank', '_blank'); }catch(e){ win = null; }
+  try{
+    const d = await api('/api/platforms/workbuddy/login/start','POST',{realm});
+    if(!d.auth_url) throw new Error('未拿到授权链接');
+    WB_STATE = d.state; WB_REALM = d.realm || realm; WB_TRIES = 0;
+    if(win && !win.closed){ win.location.href = d.auth_url; }
+    if(st){
+      st.innerHTML = '已打开授权页，请在浏览器完成登录…'
+        + ((win && !win.closed) ? '' : `　<a href="${escapeHtml(d.auth_url)}" target="_blank">新窗口被拦截，点这里手动打开</a>`);
+    }
+    WB_TIMER = setInterval(wbLoginTick, 2000);
+  }catch(e){
+    if(win && !win.closed) win.close();
+    if(btn) btn.disabled = false;
+    if(st) st.textContent = '获取授权链接失败：' + e.message;
+  }
+}
+async function wbLoginTick(){
+  WB_TRIES++;
+  const st = $('#wbLoginState'), btn = $('#wbLoginBtn');
+  if(WB_TRIES > 150){ wbLoginStop(); if(btn) btn.disabled = false; if(st) st.textContent = '等待超时，请重试'; return; }
+  try{
+    const r = await api('/api/platforms/workbuddy/login/poll','POST',{state:WB_STATE, realm:WB_REALM});
+    if(r.ok){
+      wbLoginStop();
+      if(btn) btn.disabled = false;
+      const lb = (r.account && r.account.label) || '';
+      if(st) st.textContent = '登录成功，账号已写入：' + lb;
+      toast('WorkBuddy 登录成功：' + lb);
+      const f = $('#accFilter'); if(f) f.value = '';
+      loadAccounts(); loadOverview(); loadTasks();
+    } else if(st){
+      st.textContent = '等待登录…（' + (WB_TRIES * 2) + 's，请在新窗口完成授权）';
+    }
+  }catch(e){
+    if(st) st.textContent = '等待登录…（' + (WB_TRIES * 2) + 's）';
+  }
 }
 function onPlatformChange(){
   const p = PLATFORMS.find(x => x.id === $('#accPlatform').value);
+  wbLoginStop();                                   // 切换平台时停掉上一次的登录轮询
   const box = $('#accGuide');
   if(!box) return;
   if(!p){ box.innerHTML=''; return; }
