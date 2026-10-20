@@ -1,0 +1,9 @@
+data
+*.log
+__pycache__
+*.pyc
+.git
+.gitignore
+trae_export.json
+*.cmd
+.env

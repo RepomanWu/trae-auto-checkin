@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trae 多账号管理面板</title>
+<style>
+:root{--bg:#0f1419;--card:#181f27;--card2:#1e2731;--line:#2a3542;--fg:#e6edf3;--muted:#8b98a5;--accent:#3b82f6;--ok:#22c55e;--bad:#ef4444;--warn:#f59e0b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 -apple-system,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif}
+a{color:var(--accent)}
+header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+header h1{font-size:16px;margin:0;font-weight:600}
+header .sp{flex:1}
+nav{display:flex;gap:6px;padding:10px 20px;flex-wrap:wrap;border-bottom:1px solid var(--line);position:sticky;top:53px;background:var(--bg);z-index:4}
+nav button{background:transparent;color:var(--muted);border:1px solid transparent;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px}
+nav button.active{background:var(--card2);color:var(--fg);border-color:var(--line)}
+main{padding:20px;max-width:1180px;margin:0 auto}
+section{display:none}
+section.active{display:block}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card .k{color:var(--muted);font-size:12px}
+.card .v{font-size:22px;font-weight:600;margin-top:4px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.panel h3{margin:0 0 12px;font-size:14px;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{color:var(--muted);font-weight:500;font-size:12px}
+tr:last-child td{border-bottom:none}
+button.btn{background:var(--card2);color:var(--fg);border:1px solid var(--line);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px}
+button.btn:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{color:var(--bad)}
+button.btn:disabled{opacity:.5;cursor:not-allowed}
+input,select,textarea{background:var(--card2);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px 10px;font:inherit;width:100%}
+textarea{min-height:96px;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px}
+.tag.ok{background:rgba(34,197,94,.15);color:var(--ok)}
+.tag.bad{background:rgba(239,68,68,.15);color:var(--bad)}
+.tag.mut{background:rgba(139,152,165,.15);color:var(--muted)}
+.muted{color:var(--muted)}
+.hidden{display:none!important}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:20}
+.overlay .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;width:340px}
+.log{font-family:ui-monospace,Consolas,monospace;font-size:12px;max-height:520px;overflow:auto}
+.log div{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.log .ch{display:inline-block;min-width:52px;color:var(--muted)}
+.chart{width:100%;height:190px}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px 16px;max-width:420px;z-index:30;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+</style>
+</head>
+<body>
+
+<div id="login" class="overlay hidden">
+  <div class="box">
+    <h3 style="margin-top:0">需要访问密钥</h3>
+    <p class="muted" style="font-size:12px">请输入面板访问密钥（部署时填写的 key）</p>
+    <input id="loginKey" type="password" placeholder="访问密钥">
+    <div style="margin-top:14px"><button class="btn primary" style="width:100%" onclick="doLogin()">进入面板</button></div>
+  </div>
+</div>
+
+<header>
+  <h1>Trae 多账号管理面板</h1>
+  <span class="sp"></span>
+  <span id="hdrState" class="muted" style="font-size:12px"></span>
+  <button class="btn" onclick="logout()">切换密钥</button>
+</header>
+
+<nav>
+  <button data-v="overview" class="active">概览</button>
+  <button data-v="accounts">账号</button>
+  <button data-v="usage">用量</button>
+  <button data-v="tasks">任务中心</button>
+  <button data-v="logs">运行日志</button>
+  <button data-v="settings">设置</button>
+</nav>
+
+<main>
+  <section id="view-overview" class="active">
+    <div class="cards" id="ovCards"></div>
+    <div class="panel">
+      <h3>近 14 天积分剩余趋势</h3>
+      <div id="ovChart"></div>
+    </div>
+    <div class="panel">
+      <h3>快捷操作</h3>
+      <button class="btn primary" onclick="runCheckin()">全部签到</button>
+      <button class="btn" onclick="refreshUsage()">刷新全部用量</button>
+      <button class="btn" onclick="loadAll()">刷新页面数据</button>
+    </div>
+  </section>
+
+  <section id="view-accounts">
+    <div class="panel">
+      <h3>添加账号</h3>
+      <p class="muted" style="font-size:12px">在本机执行 <code>python export_local.py</code> 生成导出文件，或直接粘贴客户端 <code>storage.json</code> 中 <code>iCubeAuthInfo://icube.cloudide</code> 的值（登录态密文）。服务端会解密并保存，密文不会被第三方接触。</p>
+      <label>登录态密文</label>
+      <textarea id="accBlob" placeholder="粘贴 iCubeAuthInfo 密文（或明文 JSON）"></textarea>
+      <div class="row">
+        <div><label>备注名（可留空，默认取用户名）</label><input id="accLabel" placeholder="例如 我的Trae账号"></div>
+        <div style="display:flex;align-items:flex-end"><button class="btn primary" onclick="addAccount()">导入账号</button></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>账号列表</h3>
+      <table><thead><tr><th>备注</th><th>UID</th><th>区域</th><th>今日签到</th><th>剩余积分</th><th>操作</th></tr></thead>
+      <tbody id="accBody"></tbody></table>
+    </div>
+  </section>
+
+  <section id="view-usage">
+    <div class="cards" id="usageCards"></div>
+    <div class="panel">
+      <h3>积分消耗趋势（按天汇总）</h3>
+      <div id="usageChart"></div>
+    </div>
+    <div class="panel">
+      <h3>账号用量明细</h3>
+      <table><thead><tr><th>账号</th><th>总量</th><th>已消耗</th><th>剩余</th><th>消耗比例</th><th>积分包</th><th>更新时间</th></tr></thead>
+      <tbody id="usageBody"></tbody></table>
+    </div>
+  </section>
+
+  <section id="view-tasks">
+    <div class="panel">
+      <p class="muted" style="font-size:12px">说明：Trae CN 官方目前可稳定调用的自动化接口为「每日签到」与「用量查询」。官方「成长任务」类接口未公开、社区亦无可验证的逆向成果，故未内置；本页以任务中心形式统一编排，后续可在 <code>service.py</code> 的 <code>TASKS</code> 中扩展。</p>
+      <button class="btn primary" onclick="runAllTasks()">一键执行全部任务</button>
+    </div>
+    <div id="taskCards"></div>
+  </section>
+
+  <section id="view-logs">
+    <div class="panel">
+      <h3>运行日志</h3>
+      <div style="margin-bottom:10px">
+        <button class="btn" onclick="loadLogs('')">全部</button>
+        <button class="btn" onclick="loadLogs('task')">任务</button>
+        <button class="btn" onclick="loadLogs('usage')">用量</button>
+        <button class="btn" onclick="loadLogs('system')">系统</button>
+      </div>
+      <div class="log" id="logBox"></div>
+    </div>
+  </section>
+
+  <section id="view-settings">
+    <div class="panel">
+      <h3>基础配置</h3>
+      <div class="row">
+        <div><label>面板访问密钥（key，留空=不校验）</label><input id="cfgKey" type="text" placeholder="访问面板用的密钥"></div>
+        <div><label>签到来源（模型/来源口径）</label>
+          <select id="cfgSrc"><option value="1">1 · Trae CN（IDE / Work）</option><option value="2">2 · SOLO / 企业版</option></select>
+        </div>
+      </div>
+      <div class="row">
+        <div><label>签到时间（HH:MM，多个用逗号分隔）</label><input id="cfgTimes" placeholder="08:05,21:00"></div>
+        <div><label>用量自动刷新间隔（分钟）</label><input id="cfgUsageMin" type="number" min="5"></div>
+      </div>
+      <div class="row">
+        <div><label>时区</label><input id="cfgTz" placeholder="Asia/Shanghai"></div>
+        <div><label>历史保留天数</label><input id="cfgKeep" type="number" min="1"></div>
+      </div>
+      <div style="margin-top:14px"><button class="btn primary" onclick="saveBase()">保存并热生效</button></div>
+    </div>
+
+    <div class="panel">
+      <h3>通知设置</h3>
+      <label><input type="checkbox" id="ntEnabled" style="width:auto"> 开启通知总开关</label>
+      <div class="row">
+        <div><label><input type="checkbox" id="ntEmailOn" style="width:auto"> 邮件渠道</label>
+          <input id="ntHost" placeholder="smtp.163.com" style="margin-top:6px">
+          <input id="ntPort" placeholder="465" style="margin-top:6px">
+          <input id="ntFrom" placeholder="发件邮箱" style="margin-top:6px">
+          <input id="ntCode" placeholder="SMTP 授权码" style="margin-top:6px">
+          <input id="ntTo" placeholder="收件人，逗号分隔" style="margin-top:6px">
+        </div>
+        <div><label><input type="checkbox" id="ntWecomOn" style="width:auto"> 企业微信机器人</label>
+          <input id="ntWebhook" placeholder="webhook_url" style="margin-top:6px">
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <button class="btn primary" onclick="saveNotify()">保存通知配置</button>
+        <button class="btn" onclick="testNotify()">发送测试通知</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+let KEY = localStorage.getItem('trae_panel_key') || '';
+const $ = (s) => document.querySelector(s);
+
+function toast(msg, isErr){
+  const d = document.createElement('div');
+  d.className = 'toast';
+  d.style.borderColor = isErr ? 'var(--bad)' : 'var(--line)';
+  d.textContent = msg;
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(), 3800);
+}
+
+async function api(path, method='GET', body){
+  const res = await fetch(path, {
+    method,
+    headers: {'Content-Type':'application/json','X-Admin-Key': KEY},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401){ $('#login').classList.remove('hidden'); throw new Error('unauthorized'); }
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) throw new Error(data.detail || ('HTTP '+res.status));
+  return data;
+}
+
+function doLogin(){
+  KEY = $('#loginKey').value.trim();
+  localStorage.setItem('trae_panel_key', KEY);
+  $('#login').classList.add('hidden');
+  boot();
+}
+function logout(){ localStorage.removeItem('trae_panel_key'); KEY=''; $('#loginKey').value=''; $('#login').classList.remove('hidden'); }
+
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('section').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  $('#view-'+b.dataset.v).classList.add('active');
+  ({overview:loadOverview, accounts:loadAccounts, usage:loadUsage, tasks:loadTasks, logs:loadLogs, settings:loadConfig}[b.dataset.v]||(()=>{}))();
+});
+
+function fmt(v){ return (v===null||v===undefined||v==='')?'-':v; }
+function tag(ok, txtYes='已完成', txtNo='未完成'){ return ok?`<span class="tag ok">${txtYes}</span>`:`<span class="tag bad">${txtNo}</span>`; }
+
+async function loadOverview(){
+  try{
+    const o = await api('/api/overview');
+    $('#ovCards').innerHTML = [
+      card('账号总数', o.account_count), card('今日已签到', o.checked_count),
+      card('剩余积分合计', o.total_remaining), card('已消耗合计', o.total_consumed),
+      card('签到来源', o.req_source), card('通知', o.notify_enabled?'已开启':'未开启'),
+    ].join('');
+    $('#hdrState').textContent = `账号 ${o.account_count} · 已签 ${o.checked_count}`;
+    const h = await api('/api/usage/history?days=14');
+    renderChart('#ovChart', h.series, 'remaining', '剩余积分');
+  }catch(e){ if(e.message!=='unauthorized') toast('概览加载失败：'+e.message, true); }
+}
+function card(k,v){ return `<div class="card"><div class="k">${k}</div><div class="v">${fmt(v)}</div></div>`; }
+
+async function loadAccounts(){
+  try{
+    const list = await api('/api/accounts');
+    $('#accBody').innerHTML = list.length? list.map(a=>{
+      const s = a.status||{};
+      const ok = !!s.checked_in;
+      const bal = (s.usage||{}).remaining;
+      return `<tr>
+        <td>${fmt(a.label)}</td><td class="muted">${fmt(a.uid)}</td><td>${fmt(a.region)||'CN'}</td>
+        <td>${ok?tag(true,'已签到'):`<span class="tag mut">未签到</span>`}</td>
+        <td>${fmt(bal)}</td>
+        <td>
+          <button class="btn" onclick="oneCheckin('${a.id}')">签到</button>
+          <button class="btn danger" onclick="delAccount('${a.id}')">删除</button>
+        </td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="muted">暂无账号，请先导入登录态</td></tr>';
+  }catch(e){ if(e.message!=='unauthorized') toast('账号加载失败：'+e.message, true); }
+}
+
+async function addAccount(){
+  const blob = $('#accBlob').value.trim(), label = $('#accLabel').value.trim();
+  if(!blob){ toast('请先粘贴登录态密文', true); return; }
+  try{ await api('/api/accounts','POST',{blob,label}); toast('账号导入成功'); $('#accBlob').value=''; $('#accLabel').value=''; loadAccounts(); loadOverview(); }
+  catch(e){ toast('导入失败：'+e.message, true); }
+}
+async function delAccount(id){ if(!confirm('确认删除该账号？')) return;
+  try{ await api('/api/accounts/'+id,'DELETE'); toast('已删除'); loadAccounts(); loadOverview(); }catch(e){ toast(e.message,true); } }
+async function oneCheckin(id){ try{ const r = await api('/api/accounts/'+id+'/checkin','POST'); toast(r.results[0].detail); loadAccounts(); loadOverview(); }catch(e){ toast(e.message,true);} }
+async function runCheckin(){ try{ const r = await api('/api/checkin','POST',{}); toast('签到完成：'+r.results.map(x=>x.label+(x.ok?'✔':'✘')).join('、')); loadAll(); }catch(e){ toast(e.message,true);} }
+async function refreshUsage(){ try{ await api('/api/usage/refresh','POST',{}); toast('用量已刷新'); loadAll(); }catch(e){ toast(e.message,true);} }
+async function runAllTasks(){ try{ await api('/api/tasks/run','POST',{task_id:'checkin'}); await api('/api/tasks/run','POST',{task_id:'usage'}); toast('任务已执行'); loadAll(); }catch(e){ toast(e.message,true);} }
+
+async function loadUsage(){
+  try{
+    const list = await api('/api/accounts');
+    let total=0, used=0, left=0;
+    $('#usageBody').innerHTML = list.length? list.map(a=>{
+      const u = (a.status||{}).usage||{}; const st=(a.status||{});
+      total += Number(u.total||0); used += Number(u.consumed||0); left += Number(u.remaining||0);
+      const at = st.usage_at? new Date(st.usage_at*1000).toLocaleString():'-';
+      const packs = (u.packs||[]).map(p=>`${p.desc}${p.end?('（到期 '+p.end+'）'):''}`).join('<br>')||'-';
+      return `<tr><td>${fmt(a.label)}</td><td>${fmt(u.total)}</td><td>${fmt(u.consumed)}</td><td>${fmt(u.remaining)}</td>
+        <td>${u.ratio!=null?((u.ratio*100).toFixed(1)+'%'):'-'}</td><td style="font-size:12px">${packs}</td><td class="muted">${at}</td></tr>`;
+    }).join('') : '<tr><td colspan="7" class="muted">暂无数据</td></tr>';
+    $('#usageCards').innerHTML = [card('总量合计',total),card('已消耗合计',used),card('剩余合计',left),card('账号数',list.length)].join('');
+    const h = await api('/api/usage/history?days=30');
+    renderChart('#usageChart', h.series, 'consumed', '已消耗积分');
+  }catch(e){ if(e.message!=='unauthorized') toast('用量加载失败：'+e.message,true); }
+}
+
+function renderChart(sel, series, field, label){
+  const el = $(sel); if(!el) return;
+  if(!series || !series.length){ el.innerHTML = '<div class="muted" style="font-size:12px">暂无历史数据（点「刷新用量」后开始记录，随时间累积出趋势）</div>'; return; }
+  const W=900,H=180,pad=30;
+  const vals = series.map(s=>Number(s[field]||0));
+  const max = Math.max(...vals, 1), n = series.length;
+  const x = i => pad + (n===1?0:(W-2*pad)*i/(n-1));
+  const y = v => H-pad - (H-2*pad)*(v/max);
+  const pts = vals.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+  const area = `${pad},${H-pad} ${pts} ${x(n-1)},${H-pad}`;
+  el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <polyline points="${area}" fill="rgba(59,130,246,.15)" stroke="none"></polyline>
+    <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"></polyline>
+    <text x="${pad}" y="16" fill="#8b98a5" font-size="12">${label}（峰值 ${max}）</text>
+    <text x="${pad}" y="${H-6}" fill="#8b98a5" font-size="11">${series[0].date}</text>
+    <text x="${W-pad-70}" y="${H-6}" fill="#8b98a5" font-size="11">${series[n-1].date}</text>
+  </svg>`;
+}
+
+async function loadTasks(){
+  try{
+    const d = await api('/api/tasks');
+    $('#taskCards').innerHTML = d.tasks.map(t=>`
+      <div class="panel">
+        <h3>${t.name} <span class="tag ${t.auto?'ok':'mut'}">${t.auto?'可自动':'需手动'}</span></h3>
+        <div class="muted" style="font-size:12px;margin-bottom:10px">${t.desc}</div>
+        <table><thead><tr><th>账号</th><th>状态</th><th>信息</th><th>操作</th></tr></thead><tbody>
+        ${t.accounts.map(a=>`<tr><td>${fmt(a.label)}</td><td>${tag(a.done)}</td><td class="muted">${fmt(a.info)}</td>
+          <td><button class="btn" onclick="runOneTask('${t.id}','${a.account_id}')">执行</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">暂无账号</td></tr>'}
+        </tbody></table>
+      </div>`).join('');
+  }catch(e){ if(e.message!=='unauthorized') toast('任务加载失败：'+e.message,true); }
+}
+async function runOneTask(task_id, account_id){
+  try{ const r = await api('/api/tasks/run','POST',{task_id, account_ids:[account_id]});
+    toast(r.results.map(x=>x.label+'：'+x.detail).join('；')); loadTasks(); loadAccounts(); }
+  catch(e){ toast(e.message,true); }
+}
+
+async function loadLogs(channel=''){
+  try{
+    const list = await api('/api/logs?limit=300'+(channel?'&channel='+channel:''));
+    $('#logBox').innerHTML = list.length? list.map(l=>`<div><span class="ch">[${l.channel}]</span> ${l.ts} ${escapeHtml(l.text)}</div>`).join('') : '<div class="muted">暂无日志</div>';
+  }catch(e){ if(e.message!=='unauthorized') toast('日志加载失败：'+e.message,true); }
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function loadConfig(){
+  try{
+    const c = await api('/api/config');
+    $('#cfgKey').value = c.admin_key||'';
+    $('#cfgSrc').value = String(c.req_source||1);
+    $('#cfgTimes').value = (c.schedule.checkin_times||[]).join(',');
+    $('#cfgUsageMin').value = c.schedule.usage_interval_minutes||60;
+    $('#cfgTz').value = c.schedule.timezone||'Asia/Shanghai';
+    $('#cfgKeep').value = c.history_keep_days||90;
+    const n = c.notify||{}, e=n.email||{}, w=n.wecom||{};
+    $('#ntEnabled').checked = !!n.enabled; $('#ntEmailOn').checked = !!e.enabled; $('#ntWecomOn').checked = !!w.enabled;
+    $('#ntHost').value=e.smtp_host||''; $('#ntPort').value=e.smtp_port||465; $('#ntFrom').value=e.from||'';
+    $('#ntCode').value=e.auth_code||''; $('#ntTo').value=(e.to||[]).join(',');
+    $('#ntWebhook').value=w.webhook_url||'';
+  }catch(e){ if(e.message!=='unauthorized') toast('配置加载失败：'+e.message,true); }
+}
+async function saveBase(){
+  const times = $('#cfgTimes').value.split(',').map(s=>s.trim()).filter(Boolean);
+  try{
+    await api('/api/config','POST',{
+      admin_key: $('#cfgKey').value.trim(),
+      req_source: parseInt($('#cfgSrc').value,10),
+      schedule: {checkin_times: times, usage_interval_minutes: parseInt($('#cfgUsageMin').value,10)||60, timezone: $('#cfgTz').value.trim()||'Asia/Shanghai', checkin_enabled: times.length>0, usage_enabled: true},
+      history_keep_days: parseInt($('#cfgKeep').value,10)||90,
+    });
+    localStorage.setItem('trae_panel_key', $('#cfgKey').value.trim());
+    toast('已保存并热生效');
+  }catch(e){ toast('保存失败：'+e.message,true); }
+}
+async function saveNotify(){
+  try{
+    await api('/api/config','POST',{ notify: {
+      enabled: $('#ntEnabled').checked,
+      email: {enabled:$('#ntEmailOn').checked, smtp_host:$('#ntHost').value.trim(), smtp_port:parseInt($('#ntPort').value,10)||465, use_ssl:true, from:$('#ntFrom').value.trim(), auth_code:$('#ntCode').value.trim(), to:$('#ntTo').value.split(',').map(s=>s.trim()).filter(Boolean)},
+      wecom: {enabled:$('#ntWecomOn').checked, webhook_url:$('#ntWebhook').value.trim()},
+    }});
+    toast('通知配置已保存');
+  }catch(e){ toast('保存失败：'+e.message,true); }
+}
+async function testNotify(){ try{ const r = await api('/api/notify/test','POST'); toast(r.msg, !r.ok); }catch(e){ toast(e.message,true);} }
+
+function loadAll(){ loadOverview(); loadAccounts(); loadUsage(); loadTasks(); }
+
+async function boot(){
+  if(!KEY){ $('#login').classList.remove('hidden'); return; }
+  try{ const v = await api('/api/auth/verify','POST',{key:KEY}); if(!v.ok){ $('#login').classList.remove('hidden'); return; } }
+  catch(e){ return; }
+  $('#login').classList.add('hidden');
+  loadAll();
+}
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+services:
+  trae-panel:
+    build: .
+    image: trae-panel:latest
+    container_name: trae-panel
+    restart: unless-stopped
+    ports:
+      - "${PORT:-7860}:7860"
+    environment:
+      - TRAE_PANEL_ADMIN_KEY=${ADMIN_KEY:-}
+      - TRAE_PANEL_PORT=7860
+      - TRAE_PANEL_HOST=0.0.0.0
+      - TZ=${TZ:-Asia/Shanghai}
+    volumes:
+      - ./data:/data

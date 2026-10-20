@@ -1,0 +1,13 @@
+# 运行时 / 隐私数据（绝不要提交）
+data/
+config.json
+checkin.log
+*.log
+.env
+trae_export.json
+
+# Python 缓存与虚拟环境
+__pycache__/
+*.pyc
+.venv/
+venv/

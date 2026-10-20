@@ -1,0 +1,252 @@
+# -*- coding: utf-8 -*-
+"""FastAPI 面板后端：多账号 CRUD、签到、任务、用量、配置、日志 + 定时调度。"""
+
+from __future__ import annotations
+
+import secrets
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+from fastapi import Body, FastAPI, Header, HTTPException, Query
+from fastapi.responses import HTMLResponse, JSONResponse
+
+from . import service
+from .config import BASE_DIR, load_config, save_config
+from .log import log, recent
+from .store import delete_account, load_accounts, load_history
+
+PANEL_HTML = BASE_DIR / "panel" / "index.html"
+
+_scheduler = BackgroundScheduler()
+
+
+# ---- 鉴权 ----
+def _require_key(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    expected = (load_config().get("admin_key") or "").strip()
+    if not expected:
+        return  # 未设置密钥：放行（建议仅内网/本机使用）
+    if not x_admin_key or not secrets.compare_digest(x_admin_key, expected):
+        raise HTTPException(status_code=401, detail="面板密钥错误或缺失")
+
+
+def _public_account(a: dict) -> dict:
+    """脱敏：对外不返回 token / refreshToken。"""
+    out = {k: v for k, v in a.items() if k not in ("token", "refresh_token")}
+    return out
+
+
+# ---- 定时调度 ----
+def configure_scheduler() -> None:
+    cfg = load_config()
+    sch = cfg.get("schedule") or {}
+    tz = sch.get("timezone") or "Asia/Shanghai"
+    _scheduler.remove_all_jobs()
+
+    if sch.get("checkin_enabled", True):
+        for t in (sch.get("checkin_times") or []):
+            try:
+                hh, mm = str(t).split(":")
+                _scheduler.add_job(service.run_checkin, CronTrigger(
+                    hour=int(hh), minute=int(mm), timezone=tz),
+                    id="checkin_{}".format(t), replace_existing=True)
+            except Exception as e:
+                log("排程解析失败（{}）：{}".format(t, e), "system")
+    if sch.get("usage_enabled", True):
+        minutes = int(sch.get("usage_interval_minutes") or 60)
+        _scheduler.add_job(service.refresh_usage, IntervalTrigger(minutes=minutes),
+                           id="usage_refresh", replace_existing=True)
+    log("定时调度已更新：签到={} 用量间隔={}分钟".format(
+        sch.get("checkin_times"), sch.get("usage_interval_minutes")), "system")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log("Trae 面板启动", "system")
+    try:
+        _scheduler.start()
+        configure_scheduler()
+    except Exception as e:
+        log("调度器启动失败：{}".format(e), "system")
+    yield
+    try:
+        _scheduler.shutdown(wait=False)
+    except Exception:
+        pass
+
+
+app = FastAPI(title="Trae 多账号管理面板", lifespan=lifespan)
+
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    if PANEL_HTML.exists():
+        return HTMLResponse(PANEL_HTML.read_text(encoding="utf-8"))
+    return HTMLResponse("<h3>panel/index.html 缺失</h3>", status_code=500)
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok", "service": "trae-panel"}
+
+
+@app.post("/api/auth/verify")
+def auth_verify(payload: dict = Body(default_factory=dict)):
+    expected = (load_config().get("admin_key") or "").strip()
+    key = (payload or {}).get("key") or ""
+    ok = (not expected) or secrets.compare_digest(key, expected)
+    return {"ok": ok, "required": bool(expected)}
+
+
+# ---- 概览 / 账号 ----
+@app.get("/api/overview", dependencies=[])
+def api_overview(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    return service.overview()
+
+
+@app.get("/api/accounts")
+def api_accounts(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    return [_public_account(a) for a in load_accounts()]
+
+
+@app.post("/api/accounts")
+def api_add_account(payload: dict = Body(...),
+                    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    blob = (payload or {}).get("blob") or ""
+    label = (payload or {}).get("label") or ""
+    if not blob.strip():
+        raise HTTPException(400, "请填写登录态密文")
+    try:
+        acc = service.import_account(blob, label)
+    except Exception as e:
+        raise HTTPException(400, "导入失败：{}".format(e))
+    return _public_account(acc)
+
+
+@app.delete("/api/accounts/{account_id}")
+def api_delete_account(account_id: str,
+                       x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    if not delete_account(account_id):
+        raise HTTPException(404, "账号不存在")
+    return {"ok": True}
+
+
+# ---- 签到 / 用量 ----
+@app.post("/api/checkin")
+def api_checkin(payload: dict = Body(default_factory=dict),
+                x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    ids = (payload or {}).get("account_ids") or None
+    results = service.run_checkin(account_ids=ids, do_notify=False)
+    return {"results": [{"label": l, "ok": o, "detail": d} for l, o, d in results]}
+
+
+@app.post("/api/accounts/{account_id}/checkin")
+def api_checkin_one(account_id: str,
+                    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    results = service.run_checkin(account_ids=[account_id], do_notify=False)
+    return {"results": [{"label": l, "ok": o, "detail": d} for l, o, d in results]}
+
+
+@app.post("/api/usage/refresh")
+def api_usage_refresh(payload: dict = Body(default_factory=dict),
+                      x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    ids = (payload or {}).get("account_ids") or None
+    results = service.refresh_usage(account_ids=ids, do_notify=False)
+    return {"results": [{"label": l, "ok": o, "detail": d} for l, o, d in results]}
+
+
+@app.get("/api/usage/history")
+def api_usage_history(days: int = Query(default=30, ge=1, le=365),
+                      account_id: str = "",
+                      x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    cutoff = time.time() - days * 86400
+    snaps = [s for s in load_history().get("snapshots", [])
+             if (s.get("ts") or 0) >= cutoff and (not account_id or s.get("account_id") == account_id)]
+    # 每日每账号取最后一条，再汇总成趋势
+    per_day = {}
+    for s in snaps:
+        day = datetime.fromtimestamp(s["ts"]).strftime("%Y-%m-%d")
+        per_day[(day, s.get("account_id"))] = s
+    agg = {}
+    for (day, _aid), s in per_day.items():
+        o = agg.setdefault(day, {"date": day, "remaining": 0.0, "consumed": 0.0, "total": 0.0})
+        o["remaining"] += float(s.get("remaining") or 0)
+        o["consumed"] += float(s.get("consumed") or 0)
+        o["total"] += float(s.get("total") or 0)
+    series = [agg[k] for k in sorted(agg.keys())]
+    returns = [{"ts": s.get("ts"), "date": datetime.fromtimestamp(s["ts"]).strftime("%Y-%m-%d"),
+                "account_id": s.get("account_id"), "label": s.get("label"),
+                "total": s.get("total"), "consumed": s.get("consumed"),
+                "remaining": s.get("remaining")} for s in sorted(snaps, key=lambda x: x.get("ts", 0))]
+    return {"series": series, "snapshots": returns[-500:]}
+
+
+@app.get("/api/checkins")
+def api_checkins(days: int = Query(default=30, ge=1, le=365),
+                 x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    cutoff = time.time() - days * 86400
+    items = [c for c in load_history().get("checkins", []) if (c.get("ts") or 0) >= cutoff]
+    for c in items:
+        c["date"] = datetime.fromtimestamp(c["ts"]).strftime("%Y-%m-%d %H:%M")
+    return items[-500:]
+
+
+# ---- 任务 / 日志 / 配置 ----
+@app.get("/api/tasks")
+def api_tasks(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    return {"tasks": service.task_status()}
+
+
+@app.post("/api/tasks/run")
+def api_tasks_run(payload: dict = Body(...),
+                  x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    task_id = (payload or {}).get("task_id") or ""
+    ids = (payload or {}).get("account_ids") or None
+    try:
+        results = service.run_task(task_id, account_ids=ids, do_notify=False)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"results": [{"label": l, "ok": o, "detail": d} for l, o, d in results]}
+
+
+@app.get("/api/logs")
+def api_logs(limit: int = Query(default=200, ge=1, le=1000), channel: str = "",
+             x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    return recent(limit=limit, channel=channel)
+
+
+@app.get("/api/config")
+def api_get_config(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    return load_config()
+
+
+@app.post("/api/config")
+def api_set_config(payload: dict = Body(...),
+                   x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    cfg = save_config(payload or {})
+    configure_scheduler()
+    log("配置已更新", "system")
+    return cfg
+
+
+@app.post("/api/notify/test")
+def api_notify_test(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    return service.test_notify()
