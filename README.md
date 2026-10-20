@@ -88,6 +88,19 @@ docker compose up -d --build
 在 Trae 中打开本仓库，或把该技能目录导入为外部技能，然后直接说「部署 trae-auto-checkin」，
 助手会按 Skill 里的步骤完成拉取、部署、导出账号与配置。
 
+## 更新 / 重启（拉取最新代码并重新部署）
+
+代码更新后，在服务器上执行这一条命令即可（拉取最新代码 → 重建镜像 → 重启容器）：
+
+```bash
+cd /trae-checkin && git pull && ./deploy.sh
+```
+
+- 如果你的部署目录不是 `/trae-checkin`，把路径换成你自己的，例如 `cd ~/trae-checkin`。
+- `./deploy.sh` 会重新构建并重启容器，**不需要**手动 `docker compose stop`。
+- 只改面板「设置」里的配置是**热生效**的，不必重启；只有拉取到新代码时才需要跑上面的命令。
+- 若提示 `Permission denied`，用 `bash deploy.sh` 或先 `chmod +x deploy.sh`。
+
 ## 国内服务器加速
 
 国内服务器直连 Docker Hub / PyPI 很慢，首次构建可能长时间停在拉取 `python:3.11-slim`（约 130MB）。

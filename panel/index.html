@@ -6,6 +6,7 @@
 <title>Trae 多账号管理面板</title>
 <style>
 :root{--bg:#0f1419;--card:#181f27;--card2:#1e2731;--line:#2a3542;--fg:#e6edf3;--muted:#8b98a5;--accent:#3b82f6;--ok:#22c55e;--bad:#ef4444;--warn:#f59e0b}
+html[data-theme="light"]{--bg:#f5f7fa;--card:#ffffff;--card2:#eef1f6;--line:#d8e0e8;--fg:#1b2430;--muted:#5c6b7a;--accent:#2563eb;--ok:#16a34a;--bad:#dc2626;--warn:#d97706}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 -apple-system,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif}
 a{color:var(--accent)}
@@ -51,6 +52,13 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
 .chart{width:100%;height:190px}
 .toast{position:fixed;right:20px;bottom:20px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px 16px;max-width:420px;z-index:30;box-shadow:0 8px 30px rgba(0,0,0,.4)}
 </style>
+<script>
+/* 主题：默认跟随系统；手动选择记忆在 localStorage。
+   在 <head> 里先执行一次，避免首屏从深色闪到浅色（或反之）。 */
+(function(){try{var p=localStorage.getItem('trae_panel_theme')||'auto';
+var light=(p==='light')||(p==='auto'&&window.matchMedia('(prefers-color-scheme: light)').matches);
+document.documentElement.dataset.theme=light?'light':'dark';}catch(e){}})();
+</script>
 </head>
 <body>
 
@@ -67,6 +75,7 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
   <h1>Trae 多账号管理面板</h1>
   <span class="sp"></span>
   <span id="hdrState" class="muted" style="font-size:12px"></span>
+  <button class="btn" id="themeBtn" onclick="cycleTheme()">主题：跟随系统</button>
   <button class="btn" onclick="logout()">切换密钥</button>
 </header>
 
@@ -242,6 +251,32 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
 <script>
 let KEY = localStorage.getItem('trae_panel_key') || '';
 const $ = (s) => document.querySelector(s);
+
+// ---- 主题（跟随系统 / 浅色 / 深色）----
+const THEME_KEY = 'trae_panel_theme';
+const THEME_LABEL = {auto:'跟随系统', light:'浅色', dark:'深色'};
+function themePref(){ return localStorage.getItem(THEME_KEY) || 'auto'; }
+function applyTheme(){
+  const p = themePref();
+  const light = p === 'light' || (p === 'auto' && window.matchMedia('(prefers-color-scheme: light)').matches);
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
+  const b = $('#themeBtn');
+  if (b) b.textContent = '主题：' + THEME_LABEL[p];
+}
+function cycleTheme(){
+  const order = ['auto', 'light', 'dark'];
+  const cur = themePref();
+  const next = order[(order.indexOf(cur) + 1) % order.length];
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme();
+  toast('主题已切换为：' + THEME_LABEL[next]);
+}
+try{
+  const mq = window.matchMedia('(prefers-color-scheme: light)');
+  (mq.addEventListener ? mq.addEventListener('change', ()=>{ if (themePref()==='auto') applyTheme(); })
+                       : mq.addListener(()=>{ if (themePref()==='auto') applyTheme(); }));
+}catch(e){}
+applyTheme();
 
 function toast(msg, isErr){
   const d = document.createElement('div');

@@ -134,6 +134,17 @@ then appear in `/v1/models` as `<platform>/<model>` (e.g. `deepseek/deepseek-cha
 request's `model` matches an API upstream, the gateway forwards it straight through (those
 upstreams already speak the OpenAI protocol); otherwise it falls back to the Trae pool.
 
+## Updating (pull latest and redeploy)
+
+```bash
+cd /trae-checkin && git pull && ./deploy.sh
+```
+
+`git pull` fetches the latest code; `./deploy.sh` rebuilds the image and restarts the
+container (no manual `docker compose stop` needed). Use your own path if the deploy
+directory is not `/trae-checkin` (e.g. `cd ~/trae-checkin`). Panel 设置 changes are
+hot-applied and do **not** need a restart.
+
 ## Troubleshooting
 
 | Symptom | Fix |
