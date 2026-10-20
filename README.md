@@ -190,14 +190,71 @@ PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 ### 其他平台账号导入（同样「本机导出 → 面板导入」）
 
-导入时在「账号」页把「平台」切到对应项，「登录态内容」按下面格式粘贴：
+面板「账号」页已内置每个平台的**分步导入指引**（选好平台后自动显示步骤、粘贴格式与可复制的示例）。
+通用流程就三步：**① 在本机导出凭据 → ② 在面板选对应平台 → ③ 粘贴到「凭据内容」点「导入账号」**。
+下面是各平台的具体做法。
 
-| 平台 | 粘贴内容 |
-|---|---|
-| **WorkBuddy / CodeBuddy** | 本机导出的 **auth JSON**（含 `accessToken` / `refreshToken` / `uid`；嵌套形 `{"auth":{…},"account":{…}}` 或扁平形都可）。凭据可从 WorkBuddy 插件 / 登录工具导出 |
-| **MiniMax Code** | `minimax-agent-config.json` 的**全文**（含 `tokens.accessToken`），或直接粘贴 **accessToken（JWT）** |
-| **Qoder（通义灵码）** | `access_token`（形如 `dt-xxx`），或 `access_token\|refresh_token`（`drt-xxx`）。国际版粘贴 JSON：`{"token":"dt-…","refresh_token":"drt-…","region":"global","machine_token":"…","machine_code":"…","machine_type":"…"}`（设备风控三件套由本机 UMID 组件生成） |
-| **API 型平台**（DeepSeek / MiMo / 千帆 / 百炼 / 方舟） | 直接填 **API Key**；也可填 `base_url\|API Key` 覆盖默认端点，或填 JSON：`{"api_key":"…","base_url":"…","models":["…"]}`（方舟等需要在这里指定模型 ID） |
+#### WorkBuddy / CodeBuddy（腾讯）
+
+1. 在**本机**用 WorkBuddy 客户端 / 插件导出登录凭据（auth JSON），其中含 `accessToken`、`refreshToken`、
+   `account.uid`、`account.nickname`。
+2. 凭据里的 `realm`（`cn` / `global`）或 `domain` 会被自动识别，用于选择国内版 / 国际版上游。
+3. 面板「账号」→ 平台选 **WorkBuddy / CodeBuddy** → 粘贴整份 JSON → 「导入账号」。
+
+```json
+{"auth":{"accessToken":"eyJ…","refreshToken":"eyJ…","expiresAt":1780000000,"realm":"cn"},
+ "account":{"uid":"123456789","nickname":"我的号"},"device_token":""}
+```
+
+> WorkBuddy 桌面端 5.6+ 的本地登录态是**加密的**（解密密钥来自它自己的 Electron，服务器上拿不到），
+> 所以必须在本机导出成明文 auth JSON 后再粘贴。
+
+#### MiniMax Code
+
+1. 在本机找到配置文件 `minimax-agent-config.json`（macOS 位于 `~/Library/Application Support/MiniMax Agent/`）。
+2. `Ctrl+A` 复制**整份文件**；也可以只复制其中的 `tokens.accessToken`（JWT）。
+3. 面板「账号」→ 平台选 **MiniMax Code** → 粘贴 → 「导入账号」。
+
+```json
+{"tokens":{"accessToken":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjp7ImlkIjoiMTIzIn19.sig"}}
+```
+
+#### Qoder（通义灵码）
+
+1. 用官方**设备授权登录**工具拿到 `access_token`（形如 `dt-…`）与 `refresh_token`（形如 `drt-…`）。
+2. **国内版**：直接填 `access_token`，或 `access_token|refresh_token`（配 refresh 可自动续期）。
+3. **国际版**：额外需要设备风控三件套（由本机 Qoder 客户端 / CLI 的 UMID 组件生成），用 JSON 粘贴。
+
+```
+dt-1a2b3c4d5e6f7g8h|drt-9z8y7x6w5v4u3t2s
+```
+
+```json
+{"token":"dt-…","refresh_token":"drt-…","region":"global",
+ "machine_token":"…","machine_code":"…","machine_type":"…"}
+```
+
+#### API 型平台（DeepSeek / 小米 MiMo / 千帆 / 百炼 / 方舟）
+
+这类平台**没有每日签到**，是把官方 API 作为面板网关（`/v1`）的 **OpenAI 兼容上游**。
+
+1. 到对应开放平台控制台创建 **API Key**（方舟还要拿到推理接入点 / 模型 ID，形如 `ep-…`）。
+2. 面板「账号」→ 平台选对应项 → 粘贴 **API Key** → 「导入账号」（默认端点已内置，见下表）。
+3. 需要改端点或指定模型时，用 JSON：`{"api_key":"…","base_url":"…","models":["…"]}`。
+
+| 平台 | 默认端点 | 需要 models 吗 |
+|---|---|---|
+| DeepSeek | `https://api.deepseek.com/v1` | 否（已内置 `deepseek-chat` / `deepseek-reasoner`） |
+| 小米 MiMo | `https://api.xiaomimimo.com/v1` | 否（已内置 MiMo 模型名） |
+| 百度千帆 | `https://qianfan.baidubce.com/v2` | 建议指定（可用模型以控制台为准） |
+| 阿里百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 建议指定（如 `qwen-plus`） |
+| 火山方舟 | `https://ark.cn-beijing.volces.com/api/v3` | **必须**指定推理接入点 / 模型 ID |
+
+```json
+{"api_key":"sk-你的key","models":["deepseek-chat","deepseek-reasoner"]}
+```
+
+> 导入后模型会出现在「API 接入」页与 `/v1/models` 里，ID 形如 `deepseek/deepseek-chat`。
 
 > 这些平台同样遵循「本机导出 → 面板导入 → 服务器定时跑」的模式：服务端不接触客户端登录流程，
 > 只保存导出后的凭据，用于调用官方接口。

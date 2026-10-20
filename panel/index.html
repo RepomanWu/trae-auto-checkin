@@ -51,6 +51,17 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
 .log .ch{display:inline-block;min-width:52px;color:var(--muted)}
 .chart{width:100%;height:190px}
 .toast{position:fixed;right:20px;bottom:20px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px 16px;max-width:420px;z-index:30;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+.guide{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:12px 0}
+.guide .ghead{font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.guide .gsteps{margin:0;padding-left:20px;font-size:12.5px;line-height:1.9}
+.guide .gsteps li{margin-bottom:3px}
+.guide .gblock{margin-top:10px;font-size:12px;color:var(--muted)}
+.guide .gblock code{display:inline-block;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--fg);word-break:break-all}
+.guide .gsample{margin-top:6px;display:flex;gap:8px;align-items:flex-start}
+.guide .gsample code{flex:1;margin:0;padding:6px 8px;line-height:1.6}
+.guide .gsample .btn{flex:none}
+.guide .gtip{margin-top:10px;font-size:12px;color:var(--warn)}
+select optgroup{color:var(--muted);font-size:12px}
 </style>
 <script>
 /* 主题：默认跟随系统；手动选择记忆在 localStorage。
@@ -110,23 +121,26 @@ document.documentElement.dataset.theme=light?'light':'dark';}catch(e){}})();
 
   <section id="view-accounts">
     <div class="panel">
-      <h3>添加账号</h3>
-      <p class="muted" style="font-size:12px">三种内容都支持，本机<b>不需要装 Python</b>：<br>
-      ① <b>整份 storage.json</b>（最省事）：记事本打开 <code>%APPDATA%\Trae CN\User\globalStorage\storage.json</code>，Ctrl+A / Ctrl+C 全选复制，粘进来即可<br>
-      ② 脚本输出的 JSON：<code>python export_local.py</code>，或没装 Python 时用 <code>powershell -NoProfile -ExecutionPolicy Bypass -File export_local.ps1</code><br>
-      ③ 只复制 <code>iCubeAuthInfo://icube.cloudide</code> 的密文值（签到够用；OpenAI 网关需要用 ① 或 ② 才能带上真实设备指纹）<br>
-      服务端解密后只保存凭证，不经第三方。</p>
-      <label>登录态内容</label>
-      <textarea id="accBlob" placeholder="粘贴：整份 storage.json  /  导出脚本输出的 JSON  /  或仅 iCubeAuthInfo 密文"></textarea>
+      <h3>添加账号 <span class="muted" style="font-size:12px;font-weight:400">选平台 → 按指引导出凭据 → 粘贴导入</span></h3>
       <div class="row">
         <div><label>平台</label><select id="accPlatform" onchange="onPlatformChange()"></select></div>
-        <div><label>备注名（可留空）</label><input id="accLabel" placeholder="例如 我的Trae账号"></div>
+        <div><label>备注名（可留空）</label><input id="accLabel" placeholder="例如 我的主号"></div>
       </div>
-      <p class="muted" id="accHint" style="font-size:12px;margin:8px 0 0"></p>
-      <div style="margin-top:10px"><button class="btn primary" onclick="addAccount()">导入账号</button></div>
+      <div id="accGuide" class="guide"></div>
+      <label>凭据内容</label>
+      <textarea id="accBlob"></textarea>
+      <div style="margin-top:12px">
+        <button class="btn primary" onclick="addAccount()">导入账号</button>
+        <button class="btn" onclick="clearAccInput()">清空</button>
+        <span class="muted" style="font-size:12px;margin-left:8px">凭据只在你的本机与服务器之间流转，不经过第三方。</span>
+      </div>
     </div>
     <div class="panel">
-      <h3>账号列表</h3>
+      <h3>账号列表 <span class="muted" id="accCount" style="font-size:12px;font-weight:400"></span></h3>
+      <div style="max-width:260px;margin-bottom:10px">
+        <label>按平台筛选</label>
+        <select id="accFilter" onchange="loadAccounts()"></select>
+      </div>
       <table><thead><tr><th>平台</th><th>备注</th><th>UID</th><th>区域</th><th>今日签到</th><th>剩余积分</th><th>操作</th></tr></thead>
       <tbody id="accBody"></tbody></table>
     </div>
@@ -340,7 +354,11 @@ function card(k,v){ return `<div class="card"><div class="k">${k}</div><div clas
 
 async function loadAccounts(){
   try{
-    const list = await api('/api/accounts');
+    const all = await api('/api/accounts');
+    const f = ($('#accFilter') && $('#accFilter').value) || '';
+    const list = f ? all.filter(a=>(a.platform||'trae')===f) : all;
+    const cnt = $('#accCount');
+    if(cnt) cnt.textContent = `（${f ? ('筛选 '+list.length+' / 共 '+all.length) : ('共 '+all.length)}）`;
     $('#accBody').innerHTML = list.length? list.map(a=>{
       const s = a.status||{};
       const ok = !!s.checked_in;
@@ -354,7 +372,7 @@ async function loadAccounts(){
           <button class="btn" onclick="oneCheckin('${a.id}')">签到</button>
           <button class="btn danger" onclick="delAccount('${a.id}')">删除</button>
         </td></tr>`;
-    }).join('') : '<tr><td colspan="7" class="muted">暂无账号，请先导入登录态</td></tr>';
+    }).join('') : `<tr><td colspan="7" class="muted">${all.length?'该平台下暂无账号':'暂无账号，请在上方选择平台后导入凭据'}</td></tr>`;
   }catch(e){ if(e.message!=='unauthorized') toast('账号加载失败：'+e.message, true); }
 }
 
@@ -363,23 +381,54 @@ function platformName(id){ const p = PLATFORMS.find(x=>x.id===id); return p ? p.
 async function loadPlatforms(){
   try{
     PLATFORMS = await api('/api/platforms');
-    $('#accPlatform').innerHTML = PLATFORMS.map(p =>
-      `<option value="${p.id}"${p.implemented?'':' disabled'}>${p.name}${p.implemented?'':'（待接入）'}</option>`).join('');
+    const opt = p => `<option value="${p.id}"${p.implemented?'':' disabled'}>${p.name}${p.implemented?'':'（待接入）'}</option>`;
+    const client = PLATFORMS.filter(p => p.kind !== 'api');
+    const apis = PLATFORMS.filter(p => p.kind === 'api');
+    $('#accPlatform').innerHTML =
+      `<optgroup label="客户端型 · 可每日签到">${client.map(opt).join('')}</optgroup>` +
+      `<optgroup label="API 型 · 作为网关上游">${apis.map(opt).join('')}</optgroup>`;
+    const f = $('#accFilter');
+    if(f) f.innerHTML = '<option value="">全部平台</option>' +
+      PLATFORMS.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
     onPlatformChange();
   }catch(e){ if(e.message!=='unauthorized') toast('平台列表加载失败：'+e.message, true); }
 }
 function onPlatformChange(){
-  const p = PLATFORMS.find(x=>x.id===$('#accPlatform').value);
-  $('#accHint').textContent = p ? ('导入方式：' + (p.import_hint || p.login || '') + (p.note ? '　·　' + p.note : '')) : '';
+  const p = PLATFORMS.find(x => x.id === $('#accPlatform').value);
+  const box = $('#accGuide');
+  if(!box) return;
+  if(!p){ box.innerHTML=''; return; }
+  const g = p.import_guide || {};
+  const kind = (p.kind === 'api')
+    ? '<span class="tag mut">API 型 · 网关上游</span>'
+    : '<span class="tag ok">客户端型 · 可签到</span>';
+  const steps = (g.steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+  const fmt = g.format
+    ? `<div class="gblock"><b>粘贴格式</b><br><code>${escapeHtml(g.format)}</code></div>` : '';
+  const sample = g.sample
+    ? `<div class="gblock"><b>示例</b>（复制后替换成你的真实凭据）
+         <div class="gsample"><code>${escapeHtml(g.sample)}</code>
+         <button class="btn" onclick="copySample(this)">复制</button></div></div>` : '';
+  const tip = g.tip ? `<div class="gtip">⚠ ${escapeHtml(g.tip)}</div>` : '';
+  box.innerHTML =
+    `<div class="ghead">导入指引：${escapeHtml(p.name)}${kind}</div>` +
+    (steps ? `<ol class="gsteps">${steps}</ol>` : '') + fmt + sample + tip +
+    `<div class="gblock"><b>说明</b>：${escapeHtml(p.login || '')}</div>`;
+  const ta = $('#accBlob');
+  if(ta) ta.placeholder = g.placeholder || p.import_hint || '粘贴凭据内容';
 }
+function copySample(btn){ copyText(btn.previousElementSibling.textContent); }
+function clearAccInput(){ $('#accBlob').value=''; $('#accLabel').value=''; }
 async function addAccount(){
   const blob = $('#accBlob').value.trim(), label = $('#accLabel').value.trim();
   const platform = $('#accPlatform').value || 'trae';
-  if(!blob){ toast('请先粘贴登录态内容', true); return; }
+  if(!blob){ toast('请先粘贴凭据内容', true); return; }
   try{
     await api('/api/accounts','POST',{blob,label,platform});
-    toast('账号导入成功');
+    toast('已导入：' + platformName(platform) + (label ? ('（'+label+'）') : ''));
     $('#accBlob').value=''; $('#accLabel').value='';
+    const f = $('#accFilter');
+    if(f && f.value && f.value !== platform) f.value = '';   // 别让新账号被筛选藏起来
     loadAccounts(); loadOverview(); loadTasks();
   }catch(e){ toast('导入失败：'+e.message, true); }
 }
