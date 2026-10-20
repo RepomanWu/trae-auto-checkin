@@ -1,6 +1,13 @@
 services:
   trae-panel:
-    build: .
+    build:
+      context: .
+      args:
+        # 国内服务器可换镜像源加速，例如：
+        #   PYTHON_BASE=docker.m.daocloud.io/library/python:3.11-slim
+        #   PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+        PYTHON_BASE: ${PYTHON_BASE:-python:3.11-slim}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     image: trae-panel:latest
     container_name: trae-panel
     restart: unless-stopped

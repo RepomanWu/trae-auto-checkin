@@ -24,6 +24,10 @@ if [ ! -f .env ]; then
 ADMIN_KEY=$KEY
 PORT=$PORT_VAL
 TZ=${TZ:-Asia/Shanghai}
+
+# 国内服务器加速（可选，见 README「国内服务器加速」）
+# PYTHON_BASE=docker.m.daocloud.io/library/python:3.11-slim
+# PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 EOF
   echo "==> 已生成 .env"
   echo "    面板访问密钥(key): $KEY"
@@ -45,3 +49,4 @@ echo " 查看日志 : $DC logs -f"
 echo " 停止服务 : $DC down"
 echo "=========================================================="
 echo "提示：如打不开，请确认服务器安全组/防火墙已放行 ${PORT_VAL} 端口。"
+echo "提示：国内服务器首次构建若长时间卡在拉取镜像，见 README「国内服务器加速」。"

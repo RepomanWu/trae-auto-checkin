@@ -52,12 +52,47 @@ docker compose up -d --build
 ```
 
 > 打不开时确认服务器安全组 / 防火墙已放行对应端口。
+> 若提示 `Permission denied`，说明文件没有可执行位，用 `bash deploy.sh` 或 `chmod +x deploy.sh` 再执行。
 
 ### 用 Skill 一键部署（可选）
 
 仓库内置了部署 Skill：[.trae/skills/trae-auto-checkin/SKILL.md](.trae/skills/trae-auto-checkin/SKILL.md)。
 在 Trae 中打开本仓库，或把该技能目录导入为外部技能，然后直接说「部署 trae-auto-checkin」，
 助手会按 Skill 里的步骤完成拉取、部署、导出账号与配置。
+
+## 国内服务器加速
+
+国内服务器直连 Docker Hub / PyPI 很慢，首次构建可能长时间停在拉取 `python:3.11-slim`（约 130MB）。
+这不是卡死，是网速问题。两种加速方式任选：
+
+**方式 1：配置 Docker 镜像加速器（推荐，对整台机器生效）**
+
+阿里云 ECS 在「容器镜像服务 → 镜像工具 → 镜像加速器」里有专属加速地址：
+
+```bash
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json >/dev/null <<'EOF'
+{
+  "registry-mirrors": ["https://<你的专属加速地址>.mirror.aliyuncs.com"]
+}
+EOF
+sudo systemctl daemon-reload && sudo systemctl restart docker
+
+docker pull python:3.11-slim   # 先单独拉一下，验证速度
+```
+
+**方式 2：直接换镜像源（改 `.env`，不用动系统配置）**
+
+```bash
+# .env 里取消注释并按需修改
+PYTHON_BASE=docker.m.daocloud.io/library/python:3.11-slim
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+改完重新执行 `./deploy.sh`（镜像地址以你实测可用的为准）。
+
+> 构建期间想确认「慢」还是「卡死」：另开一个终端跑 `docker compose build --progress=plain`
+> 看当前步骤，`docker images` 可看基础镜像是否已拉下来。
 
 ## 添加账号（关键步骤）
 

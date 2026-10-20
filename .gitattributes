@@ -1,0 +1,4 @@
+# 统一行尾，避免脚本在 Linux 上因 CRLF 出错
+* text=auto
+*.sh text eol=lf
+Dockerfile text eol=lf
