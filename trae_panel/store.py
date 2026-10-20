@@ -34,8 +34,14 @@ def _read_json(path: Path, default):
 
 
 # ---- 账号 ----
-def load_accounts() -> list:
-    return _read_json(ACCOUNTS_FILE, []) or []
+def load_accounts(platform: str | None = None) -> list:
+    """读取账号；旧数据没有 platform 字段时按 trae 处理。可按平台过滤。"""
+    accounts = _read_json(ACCOUNTS_FILE, []) or []
+    for a in accounts:
+        a.setdefault("platform", "trae")
+    if platform:
+        accounts = [a for a in accounts if a.get("platform") == platform]
+    return accounts
 
 
 def save_accounts(accounts: list) -> None:
@@ -50,11 +56,12 @@ def find_account(account_id: str):
 
 
 def upsert_account(account: dict) -> dict:
-    """按 uid+host（或 token）去重：已存在则更新，否则新增。返回落盘后的账号。"""
+    """按 platform+uid+host（或 token）去重：已存在则更新，否则新增。返回落盘后的账号。"""
     accounts = load_accounts()
-    key = (account.get("uid"), account.get("host"))
+    account.setdefault("platform", "trae")
+    key = (account.get("platform"), account.get("uid"), account.get("host"))
     for i, a in enumerate(accounts):
-        if a.get("uid") == key[0] and a.get("host") == key[1]:
+        if (a.get("platform"), a.get("uid"), a.get("host")) == key:
             # 保留原 id/指纹/创建时间，更新凭证
             for f in ("label", "token", "refresh_token", "region", "expired_at"):
                 if account.get(f):

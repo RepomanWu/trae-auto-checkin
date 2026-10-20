@@ -14,7 +14,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
-from . import gateway, service
+from . import gateway, platforms, service
 from .config import BASE_DIR, load_config, save_config
 from .log import log, recent
 from .store import delete_account, load_accounts, load_history
@@ -108,10 +108,17 @@ def api_overview(x_admin_key: str | None = Header(default=None, alias="X-Admin-K
     return service.overview()
 
 
-@app.get("/api/accounts")
-def api_accounts(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+@app.get("/api/platforms")
+def api_platforms(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
     _require_key(x_admin_key)
-    return [_public_account(a) for a in load_accounts()]
+    return platforms.all_platforms()
+
+
+@app.get("/api/accounts")
+def api_accounts(platform: str = "",
+                 x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    return [_public_account(a) for a in load_accounts(platform or None)]
 
 
 @app.post("/api/accounts")
@@ -120,10 +127,11 @@ def api_add_account(payload: dict = Body(...),
     _require_key(x_admin_key)
     blob = (payload or {}).get("blob") or ""
     label = (payload or {}).get("label") or ""
+    platform = (payload or {}).get("platform") or "trae"
     if not blob.strip():
-        raise HTTPException(400, "请填写登录态密文")
+        raise HTTPException(400, "请填写登录态内容")
     try:
-        acc = service.import_account(blob, label)
+        acc = service.import_account(blob, label, platform)
     except Exception as e:
         raise HTTPException(400, "导入失败：{}".format(e))
     return _public_account(acc)
@@ -143,8 +151,9 @@ def api_delete_account(account_id: str,
 def api_checkin(payload: dict = Body(default_factory=dict),
                 x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
     _require_key(x_admin_key)
+    platform = (payload or {}).get("platform") or None
     ids = (payload or {}).get("account_ids") or None
-    results = service.run_checkin(account_ids=ids, do_notify=False)
+    results = service.run_checkin(platform=platform, account_ids=ids, do_notify=False)
     return {"results": [{"label": l, "ok": o, "detail": d} for l, o, d in results]}
 
 
@@ -160,8 +169,9 @@ def api_checkin_one(account_id: str,
 def api_usage_refresh(payload: dict = Body(default_factory=dict),
                       x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
     _require_key(x_admin_key)
+    platform = (payload or {}).get("platform") or None
     ids = (payload or {}).get("account_ids") or None
-    results = service.refresh_usage(account_ids=ids, do_notify=False)
+    results = service.refresh_usage(platform=platform, account_ids=ids, do_notify=False)
     return {"results": [{"label": l, "ok": o, "detail": d} for l, o, d in results]}
 
 
@@ -207,7 +217,7 @@ def api_checkins(days: int = Query(default=30, ge=1, le=365),
 @app.get("/api/tasks")
 def api_tasks(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
     _require_key(x_admin_key)
-    return {"tasks": service.task_status()}
+    return {"platforms": service.task_status()}
 
 
 @app.post("/api/tasks/run")
@@ -215,9 +225,10 @@ def api_tasks_run(payload: dict = Body(...),
                   x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
     _require_key(x_admin_key)
     task_id = (payload or {}).get("task_id") or ""
+    platform = (payload or {}).get("platform") or None
     ids = (payload or {}).get("account_ids") or None
     try:
-        results = service.run_task(task_id, account_ids=ids, do_notify=False)
+        results = service.run_task(task_id, platform=platform, account_ids=ids, do_notify=False)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"results": [{"label": l, "ok": o, "detail": d} for l, o, d in results]}

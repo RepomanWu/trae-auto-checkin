@@ -88,6 +88,10 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
       <div id="ovChart"></div>
     </div>
     <div class="panel">
+      <h3>平台</h3>
+      <table><thead><tr><th>平台</th><th>状态</th><th>账号</th><th>今日已签</th><th>说明</th></tr></thead><tbody id="ovPlatforms"></tbody></table>
+    </div>
+    <div class="panel">
       <h3>快捷操作</h3>
       <button class="btn primary" onclick="runCheckin()">全部签到</button>
       <button class="btn" onclick="refreshUsage()">刷新全部用量</button>
@@ -106,13 +110,15 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
       <label>登录态内容</label>
       <textarea id="accBlob" placeholder="粘贴：整份 storage.json  /  导出脚本输出的 JSON  /  或仅 iCubeAuthInfo 密文"></textarea>
       <div class="row">
-        <div><label>备注名（可留空，默认取用户名）</label><input id="accLabel" placeholder="例如 我的Trae账号"></div>
-        <div style="display:flex;align-items:flex-end"><button class="btn primary" onclick="addAccount()">导入账号</button></div>
+        <div><label>平台</label><select id="accPlatform" onchange="onPlatformChange()"></select></div>
+        <div><label>备注名（可留空）</label><input id="accLabel" placeholder="例如 我的Trae账号"></div>
       </div>
+      <p class="muted" id="accHint" style="font-size:12px;margin:8px 0 0"></p>
+      <div style="margin-top:10px"><button class="btn primary" onclick="addAccount()">导入账号</button></div>
     </div>
     <div class="panel">
       <h3>账号列表</h3>
-      <table><thead><tr><th>备注</th><th>UID</th><th>区域</th><th>今日签到</th><th>剩余积分</th><th>操作</th></tr></thead>
+      <table><thead><tr><th>平台</th><th>备注</th><th>UID</th><th>区域</th><th>今日签到</th><th>剩余积分</th><th>操作</th></tr></thead>
       <tbody id="accBody"></tbody></table>
     </div>
   </section>
@@ -132,7 +138,7 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
 
   <section id="view-tasks">
     <div class="panel">
-      <p class="muted" style="font-size:12px">说明：Trae CN 官方目前可稳定调用的自动化接口为「每日签到」与「用量查询」。官方「成长任务」类接口未公开、社区亦无可验证的逆向成果，故未内置；本页以任务中心形式统一编排，后续可在 <code>service.py</code> 的 <code>TASKS</code> 中扩展。</p>
+      <p class="muted" style="font-size:12px">按平台分组展示各任务状态。「待接入」的平台只显示元数据，实现后会自动出现在这里（新增平台只需在 <code>trae_panel/platforms/</code> 下加一个 <code>id.py</code>）。</p>
       <button class="btn primary" onclick="runAllTasks()">一键执行全部任务</button>
     </div>
     <div id="taskCards"></div>
@@ -281,6 +287,11 @@ async function loadOverview(){
       card('签到来源', o.req_source), card('通知', o.notify_enabled?'已开启':'未开启'),
     ].join('');
     $('#hdrState').textContent = `账号 ${o.account_count} · 已签 ${o.checked_count}`;
+    $('#ovPlatforms').innerHTML = (o.platforms||[]).map(p=>`<tr>
+      <td>${p.name}</td>
+      <td>${p.implemented?'<span class="tag ok">已接入</span>':'<span class="tag mut">待接入</span>'}</td>
+      <td>${p.accounts}</td><td>${p.checked}</td>
+      <td class="muted" style="font-size:12px">${escapeHtml(p.note||'')}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">无</td></tr>';
     const h = await api('/api/usage/history?days=14');
     renderChart('#ovChart', h.series, 'remaining', '剩余积分');
   }catch(e){ if(e.message!=='unauthorized') toast('概览加载失败：'+e.message, true); }
@@ -295,6 +306,7 @@ async function loadAccounts(){
       const ok = !!s.checked_in;
       const bal = (s.usage||{}).remaining;
       return `<tr>
+        <td class="muted" style="font-size:12px">${platformName(a.platform||'trae')}</td>
         <td>${fmt(a.label)}</td><td class="muted">${fmt(a.uid)}</td><td>${fmt(a.region)||'CN'}</td>
         <td>${ok?tag(true,'已签到'):`<span class="tag mut">未签到</span>`}</td>
         <td>${fmt(bal)}</td>
@@ -302,15 +314,34 @@ async function loadAccounts(){
           <button class="btn" onclick="oneCheckin('${a.id}')">签到</button>
           <button class="btn danger" onclick="delAccount('${a.id}')">删除</button>
         </td></tr>`;
-    }).join('') : '<tr><td colspan="6" class="muted">暂无账号，请先导入登录态</td></tr>';
+    }).join('') : '<tr><td colspan="7" class="muted">暂无账号，请先导入登录态</td></tr>';
   }catch(e){ if(e.message!=='unauthorized') toast('账号加载失败：'+e.message, true); }
 }
 
+let PLATFORMS = [];
+function platformName(id){ const p = PLATFORMS.find(x=>x.id===id); return p ? p.name : (id||'trae'); }
+async function loadPlatforms(){
+  try{
+    PLATFORMS = await api('/api/platforms');
+    $('#accPlatform').innerHTML = PLATFORMS.map(p =>
+      `<option value="${p.id}"${p.implemented?'':' disabled'}>${p.name}${p.implemented?'':'（待接入）'}</option>`).join('');
+    onPlatformChange();
+  }catch(e){ if(e.message!=='unauthorized') toast('平台列表加载失败：'+e.message, true); }
+}
+function onPlatformChange(){
+  const p = PLATFORMS.find(x=>x.id===$('#accPlatform').value);
+  $('#accHint').textContent = p ? ('导入方式：' + (p.import_hint || p.login || '') + (p.note ? '　·　' + p.note : '')) : '';
+}
 async function addAccount(){
   const blob = $('#accBlob').value.trim(), label = $('#accLabel').value.trim();
-  if(!blob){ toast('请先粘贴登录态密文', true); return; }
-  try{ await api('/api/accounts','POST',{blob,label}); toast('账号导入成功'); $('#accBlob').value=''; $('#accLabel').value=''; loadAccounts(); loadOverview(); }
-  catch(e){ toast('导入失败：'+e.message, true); }
+  const platform = $('#accPlatform').value || 'trae';
+  if(!blob){ toast('请先粘贴登录态内容', true); return; }
+  try{
+    await api('/api/accounts','POST',{blob,label,platform});
+    toast('账号导入成功');
+    $('#accBlob').value=''; $('#accLabel').value='';
+    loadAccounts(); loadOverview(); loadTasks();
+  }catch(e){ toast('导入失败：'+e.message, true); }
 }
 async function delAccount(id){ if(!confirm('确认删除该账号？')) return;
   try{ await api('/api/accounts/'+id,'DELETE'); toast('已删除'); loadAccounts(); loadOverview(); }catch(e){ toast(e.message,true); } }
@@ -359,19 +390,22 @@ function renderChart(sel, series, field, label){
 async function loadTasks(){
   try{
     const d = await api('/api/tasks');
-    $('#taskCards').innerHTML = d.tasks.map(t=>`
-      <div class="panel">
-        <h3>${t.name} <span class="tag ${t.auto?'ok':'mut'}">${t.auto?'可自动':'需手动'}</span></h3>
-        <div class="muted" style="font-size:12px;margin-bottom:10px">${t.desc}</div>
+    const groups = d.platforms || [];
+    $('#taskCards').innerHTML = groups.map(g=>{
+      const badge = g.implemented ? '<span class="tag ok">已接入</span>' : '<span class="tag mut">待接入</span>';
+      const body = (g.tasks && g.tasks.length) ? g.tasks.map(t=>`
+        <div style="margin-top:12px"><b>${t.name}</b> <span class="muted" style="font-size:12px">${t.desc||''}</span></div>
         <table><thead><tr><th>账号</th><th>状态</th><th>信息</th><th>操作</th></tr></thead><tbody>
         ${t.accounts.map(a=>`<tr><td>${fmt(a.label)}</td><td>${tag(a.done)}</td><td class="muted">${fmt(a.info)}</td>
-          <td><button class="btn" onclick="runOneTask('${t.id}','${a.account_id}')">执行</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">暂无账号</td></tr>'}
-        </tbody></table>
-      </div>`).join('');
+          <td><button class="btn" onclick="runOneTask('${t.id}','${a.account_id}','${g.platform}')">执行</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">暂无账号</td></tr>'}
+        </tbody></table>`).join('')
+        : `<div class="muted" style="font-size:12px;margin-top:8px">${escapeHtml(g.note||'待接入')}</div>`;
+      return `<div class="panel"><h3>${g.platform_name} ${badge} <span class="muted" style="font-size:12px">账号 ${g.account_count}</span></h3>${body}</div>`;
+    }).join('');
   }catch(e){ if(e.message!=='unauthorized') toast('任务加载失败：'+e.message,true); }
 }
-async function runOneTask(task_id, account_id){
-  try{ const r = await api('/api/tasks/run','POST',{task_id, account_ids:[account_id]});
+async function runOneTask(task_id, account_id, platform){
+  try{ const r = await api('/api/tasks/run','POST',{task_id, platform, account_ids:[account_id]});
     toast(r.results.map(x=>x.label+'：'+x.detail).join('；')); loadTasks(); loadAccounts(); }
   catch(e){ toast(e.message,true); }
 }
@@ -498,6 +532,7 @@ async function boot(){
   try{ const v = await api('/api/auth/verify','POST',{key:KEY}); if(!v.ok){ $('#login').classList.remove('hidden'); return; } }
   catch(e){ return; }
   $('#login').classList.add('hidden');
+  await loadPlatforms();
   loadAll();
 }
 boot();

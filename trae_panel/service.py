@@ -13,7 +13,7 @@ import time
 from datetime import datetime
 
 from .api import AuthExpired, TraeClient, checkin_claim, checkin_status, user_usage
-from . import gateway
+from . import gateway, platforms
 from .config import DEFAULT_CONFIG, load_config
 from .crypto import (DEFAULT_HOST, account_label, account_region, decrypt_auth_value,
                      device_info_from_storage, new_fingerprint)
@@ -69,7 +69,7 @@ def _packs_simple(packs: list) -> list:
 
 
 # ---- 账号导入 ----
-def import_account(blob: str, label: str = "") -> dict:
+def import_account(blob: str, label: str = "", platform: str = "trae") -> dict:
     """按登录态导入/更新账号。支持三种粘贴内容（都不需要本机装 Python）：
 
       1. 整份 storage.json（推荐给没装 Python 的机器：记事本打开，Ctrl+A/Ctrl+C 粘进来）
@@ -78,7 +78,14 @@ def import_account(blob: str, label: str = "") -> dict:
          签到可用，但 OpenAI 网关会被上游按风控限流）
 
     对话网关需要客户端真实设备指纹，所以优先用 1 或 2。
+
+    platform 指定账号属于哪个平台（见 platforms.PLATFORMS）；目前只有 trae 实现了导入。
     """
+    if not platforms.exists(platform):
+        raise ValueError("未知平台：{}".format(platform))
+    if platform != "trae":
+        meta = platforms.get(platform)
+        raise ValueError("「{}」的账号导入尚未接入（清单里显示为待接入）".format(meta.get("name")))
     cfg = load_config()
     text = (blob or "").strip()
     extra: dict = {}
@@ -104,6 +111,7 @@ def import_account(blob: str, label: str = "") -> dict:
     uid = str(auth.get("userId") or "")
     fp = new_fingerprint()
     account = {
+        "platform": platform,
         "label": (label or "").strip() or account_label(auth, uid or "account"),
         "host": host,
         "uid": uid,
@@ -207,20 +215,15 @@ def _snapshot_usage(account: dict, client: TraeClient, req_source: int) -> dict:
     return status["usage"]
 
 
-def refresh_usage(account_ids=None, do_notify=False) -> list:
+def refresh_usage(platform=None, account_ids=None, do_notify=False) -> list:
     cfg = load_config()
-    device_cfg = cfg.get("device") or {}
-    req_source = cfg.get("req_source", 1)
     accounts = load_accounts()
-    targets = [a for a in accounts if not account_ids or a.get("id") in account_ids]
+    targets = _pick(cfg, platform, account_ids)
     results = []
     for acc in targets:
         label = acc.get("label") or acc.get("uid")
         try:
-            if cfg.get("region_override"):
-                acc["region"] = cfg["region_override"]
-            client = TraeClient(acc, device_cfg)
-            _snapshot_usage(acc, client, req_source)
+            _dispatch_usage(acc, cfg)
             results.append((label, True, "用量已刷新"))
             log("用量已刷新：{}".format(label), "usage")
         except AuthExpired as e:
@@ -232,7 +235,7 @@ def refresh_usage(account_ids=None, do_notify=False) -> list:
     save_accounts(accounts)
     prune_history(cfg.get("history_keep_days", 90))
     if do_notify:
-        send_notifications(cfg.get("notify"), results, title="Trae 用量刷新结果")
+        send_notifications(cfg.get("notify"), results, title="用量刷新结果")
     return results
 
 
@@ -294,23 +297,67 @@ def _checkin_one(acc: dict, cfg: dict, device_cfg: dict, req_source: int):
     return ok, detail
 
 
-def run_checkin(account_ids=None, do_notify=True) -> list:
-    """对指定的（或全部）账号执行每日签到，返回 [(label, ok, detail)]。"""
+def _dispatch_checkin(acc: dict, cfg: dict):
+    """按账号所属平台分发签到。"""
+    pid = acc.get("platform") or "trae"
+    if pid == "trae":
+        return _checkin_one(acc, cfg, cfg.get("device") or {}, cfg.get("req_source", 1))
+    meta = platforms.get(pid)
+    ad = platforms.adapter(pid)
+    if ad is None:
+        return False, "「{}」尚待接入".format(meta.get("name"))
+    try:
+        return ad.checkin(acc, cfg)
+    except NotImplementedError:
+        return False, "「{}」签到尚未实现".format(meta.get("name"))
+    except Exception as e:
+        return False, "签到失败：{}".format(e)
+
+
+def _dispatch_usage(acc: dict, cfg: dict):
+    """按账号所属平台分发用量刷新。"""
+    pid = acc.get("platform") or "trae"
+    if pid == "trae":
+        if cfg.get("region_override"):
+            acc["region"] = cfg["region_override"]
+        return _snapshot_usage(acc, TraeClient(acc, cfg.get("device") or {}), cfg.get("req_source", 1))
+    ad = platforms.adapter(pid)
+    if ad is None:
+        raise RuntimeError("「{}」尚待接入".format(platforms.get(pid).get("name")))
+    return ad.usage(acc, cfg)
+
+
+def _pick(cfg, platform, account_ids):
+    """挑出要处理的账号：只保留「该平台已实现」的，避免调度日志被待接入平台刷屏。"""
+    out = []
+    for a in load_accounts():
+        pid = a.get("platform") or "trae"
+        if platform and pid != platform:
+            continue
+        if account_ids and a.get("id") not in account_ids:
+            continue
+        if platforms.adapter(pid) is None:
+            continue
+        out.append(a)
+    return out
+
+
+def run_checkin(platform=None, account_ids=None, do_notify=True) -> list:
+    """对指定平台（或全部已接入平台）的账号执行签到，返回 [(label, ok, detail)]。"""
     cfg = load_config()
-    device_cfg = cfg.get("device") or {}
-    req_source = cfg.get("req_source", 1)
-    accounts = load_accounts()
-    if not accounts:
+    if not load_accounts():
         log("没有账号，跳过签到", "task")
         return []
-    targets = [a for a in accounts if not account_ids or a.get("id") in account_ids]
+    accounts = load_accounts()
+    targets = _pick(cfg, platform, account_ids)
     log("开始签到，共 {} 个账号".format(len(targets)), "task")
     results = []
     for acc in targets:
         label = acc.get("label") or acc.get("uid")
-        ok, detail = _checkin_one(acc, cfg, device_cfg, req_source)
+        ok, detail = _dispatch_checkin(acc, cfg)
         results.append((label, ok, detail))
-        append_checkin({"ts": time.time(), "account_id": acc.get("id"), "label": label,
+        append_checkin({"ts": time.time(), "account_id": acc.get("id"),
+                        "platform": acc.get("platform") or "trae", "label": label,
                         "ok": ok, "detail": detail,
                         "credits": (acc.get("status") or {}).get("credits")})
         log("[{}] {}".format(label, detail), "task")
@@ -322,35 +369,58 @@ def run_checkin(account_ids=None, do_notify=True) -> list:
 
 
 # ---- 任务中心 ----
-def run_task(task_id: str, account_ids=None, do_notify=False) -> list:
+def _task_desc(tid: str) -> str:
+    return {
+        "checkin": "查询今日签到状态并领取积分（幂等）",
+        "usage": "查询积分/额度总量、已消耗、剩余与积分包",
+    }.get(tid, "")
+
+
+def _task_state(tid: str, a: dict):
+    st = a.get("status") or {}
+    if tid == "checkin":
+        if st.get("checked_in"):
+            return True, "奖励 {} / 额外 {}".format(st.get("credits"), st.get("extra_credits"))
+        return False, st.get("last_error") or "未执行"
+    if tid == "usage":
+        u = st.get("usage") or {}
+        if u.get("total") is not None:
+            return True, "剩余 {} / 总量 {}".format(u.get("remaining"), u.get("total"))
+        return False, "未执行"
+    return False, "未执行"
+
+
+def run_task(task_id: str, platform=None, account_ids=None, do_notify=False) -> list:
     if task_id == "checkin":
-        return run_checkin(account_ids=account_ids, do_notify=do_notify)
+        return run_checkin(platform=platform, account_ids=account_ids, do_notify=do_notify)
     if task_id == "usage":
-        return refresh_usage(account_ids=account_ids, do_notify=do_notify)
+        return refresh_usage(platform=platform, account_ids=account_ids, do_notify=do_notify)
     raise ValueError("未知任务：{}".format(task_id))
 
 
 def task_status() -> list:
-    """任务中心：每个账号 × 每个任务的完成状态。"""
-    out = []
-    for t in TASKS:
-        row = {"id": t["id"], "name": t["name"], "desc": t["desc"], "auto": t["auto"],
-               "accounts": []}
-        for a in load_accounts():
-            st = a.get("status") or {}
-            if t["id"] == "checkin":
-                done = bool(st.get("checked_in"))
-                extra = "奖励 {} / 额外 {}".format(st.get("credits"), st.get("extra_credits")) \
-                    if st.get("checked_in") else (st.get("last_error") or "未执行")
-            else:
-                usage = st.get("usage") or {}
-                done = usage.get("total") is not None
-                extra = "剩余 {} / 总量 {}".format(usage.get("remaining"), usage.get("total")) \
-                    if done else "未执行"
-            row["accounts"].append({"account_id": a.get("id"), "label": a.get("label"),
-                                    "done": done, "info": extra})
-        out.append(row)
-    return out
+    """任务中心：按平台分组，展示每个任务在各账号上的完成状态。"""
+    by_plat = {}
+    for a in load_accounts():
+        by_plat.setdefault(a.get("platform") or "trae", []).append(a)
+
+    rows = []
+    for meta in platforms.all_platforms():
+        accts = by_plat.get(meta["id"], [])
+        tasks = []
+        if meta["implemented"]:
+            for tid in meta.get("tasks", []):
+                row = {"id": tid, "name": platforms.TASK_LABELS.get(tid, tid),
+                       "desc": _task_desc(tid), "accounts": []}
+                for a in accts:
+                    done, info = _task_state(tid, a)
+                    row["accounts"].append({"account_id": a.get("id"), "label": a.get("label"),
+                                            "done": done, "info": info})
+                tasks.append(row)
+        rows.append({"platform": meta["id"], "platform_name": meta["name"],
+                     "implemented": meta["implemented"], "note": meta.get("note") or "",
+                     "account_count": len(accts), "tasks": tasks})
+    return rows
 
 
 # ---- 通知测试 ----
@@ -374,6 +444,21 @@ def overview() -> dict:
         usage = (a.get("status") or {}).get("usage") or {}
         total_remaining += _num(usage.get("remaining")) or 0.0
         total_consumed += _num(usage.get("consumed")) or 0.0
+    per_plat = {}
+    for a in accounts:
+        pid = a.get("platform") or "trae"
+        row = per_plat.setdefault(pid, {"accounts": 0, "checked": 0})
+        row["accounts"] += 1
+        if (a.get("status") or {}).get("checked_in"):
+            row["checked"] += 1
+    platform_rows = []
+    for meta in platforms.all_platforms():
+        stat = per_plat.get(meta["id"], {"accounts": 0, "checked": 0})
+        platform_rows.append({"id": meta["id"], "name": meta["name"],
+                              "implemented": meta["implemented"],
+                              "accounts": stat["accounts"], "checked": stat["checked"],
+                              "tasks": meta.get("tasks", []), "note": meta.get("note") or "",
+                              "kind": meta.get("kind")})
     return {
         "account_count": len(accounts),
         "checked_count": checked,
@@ -382,4 +467,5 @@ def overview() -> dict:
         "req_source": cfg.get("req_source", 1),
         "schedule": cfg.get("schedule") or DEFAULT_CONFIG["schedule"],
         "notify_enabled": bool((cfg.get("notify") or {}).get("enabled")),
+        "platforms": platform_rows,
     }
