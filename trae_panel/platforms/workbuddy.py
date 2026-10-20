@@ -216,22 +216,29 @@ def import_account(raw: str, label: str = "") -> dict:
     if "auth" in parsed:                       # 嵌套形（插件 OAuth 输出）
         a = parsed.get("auth") or {}
         acc = parsed.get("account") or {}
-        access = a.get("accessToken") or ""
-        refresh = a.get("refreshToken") or ""
+        access = a.get("accessToken") or a.get("access_token") or ""
+        refresh = a.get("refreshToken") or a.get("refresh_token") or ""
         expires = a.get("expiresAt") or 0
+        if not expires and a.get("expires_in"):
+            expires = int(time.time()) + int(a["expires_in"])
         domain = a.get("domain") or ""
         realm = a.get("realm") or ""
         uid = str(acc.get("uid") or "")
-        ent = str(acc.get("enterpriseId") or "")
+        ent = str(acc.get("enterpriseId") or acc.get("enterprise_id") or "")
         nick = acc.get("nickname") or ""
-    else:                                      # 扁平形
-        access = parsed.get("accessToken") or ""
-        refresh = parsed.get("refreshToken") or ""
+    else:                                      # 扁平形（含设备授权登录工具的 snake_case 输出）
+        access = parsed.get("accessToken") or parsed.get("access_token") or ""
+        refresh = parsed.get("refreshToken") or parsed.get("refresh_token") or ""
         expires = parsed.get("expiresAt") or 0
+        if not expires and parsed.get("expires_in"):
+            try:
+                expires = int(time.time()) + int(parsed["expires_in"])
+            except (TypeError, ValueError):
+                expires = 0
         domain = parsed.get("domain") or ""
         realm = parsed.get("realm") or ""
         uid = str(parsed.get("uid") or "")
-        ent = str(parsed.get("enterpriseId") or "")
+        ent = str(parsed.get("enterpriseId") or parsed.get("enterprise_id") or "")
         nick = parsed.get("nickname") or ""
     device_token = parsed.get("device_token") or ""
 

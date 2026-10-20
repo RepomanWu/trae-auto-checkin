@@ -156,15 +156,19 @@ IMPORT_GUIDES = {
     },
     "workbuddy": {
         "steps": [
-            "在【本机 WorkBuddy 客户端 / 插件】里导出登录凭据（auth JSON），"
+            "方式一（推荐，不需要客户端）：在本机运行 python export_workbuddy.py，"
+            "它会打印一条浏览器授权链接，登录后回车即可输出可直接粘贴的凭据 JSON；"
+            "国际版加 --realm global。",
+            "方式二：在已登录的 WorkBuddy 客户端 / 插件里导出登录凭据（auth JSON），"
             "其中含 accessToken、refreshToken、account.uid、account.nickname。",
-            "凭据里的 realm（cn / global）或 domain 会被自动识别，用于选择国内版 / 国际版上游。",
+            "凭据里的 realm（cn / global）或 domain 会被自动识别，用于选择国内版 / 国际版上游；"
             "把整份 JSON 粘贴到下方「凭据内容」，点「导入账号」。",
         ],
-        "format": "嵌套形 {\"auth\":{…},\"account\":{…}} ｜ 扁平形 {\"accessToken\":\"…\",\"uid\":\"…\"}",
+        "format": "嵌套形 {\"auth\":{…},\"account\":{…}} ｜ 扁平形（camelCase 或 snake_case 均可）",
         "sample": '{"auth":{"accessToken":"eyJhbGciOiJIUzI1NiJ9.xxxxx.yyy","refreshToken":"eyJhbGciOiJIUzI1NiJ9.aaaa.bbb","expiresAt":1780000000,"domain":"www.codebuddy.cn","realm":"cn"},"account":{"uid":"123456789","enterpriseId":"","nickname":"我的号"},"device_token":""}',
-        "placeholder": "粘贴 WorkBuddy auth JSON（嵌套形或扁平形）",
-        "tip": "WorkBuddy 桌面端 5.6+ 的本地登录态是加密的，服务器解不开，必须本机导出后粘贴。",
+        "placeholder": "粘贴 WorkBuddy auth JSON（嵌套形或扁平形），或 export_workbuddy.py 输出的 JSON",
+        "tip": "WorkBuddy 桌面端 5.6+ 的本地登录态是加密的（密钥在它自己的 Electron 里），服务器解不开，"
+               "所以必须在本机导出明文凭据后再粘贴。",
     },
     "minimax": {
         "steps": [

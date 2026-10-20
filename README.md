@@ -196,18 +196,39 @@ PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 #### WorkBuddy / CodeBuddy（腾讯）
 
+WorkBuddy 桌面端 5.6+ 的本地登录态是**加密的**（解密密钥来自它自己的 Electron，服务器上拿不到），
+所以要在本机导出成明文凭据。两种方式任选：
+
+**方式一：用设备授权登录脚本（推荐，不需要装客户端）**
+
+```bash
+pip install requests
+python export_workbuddy.py                 # 国内版
+python export_workbuddy.py --realm global  # 国际版
+```
+
+脚本会打印一条**浏览器授权链接** → 在浏览器里登录 → 回到终端按回车 → 输出一整行凭据 JSON。
+把这行 JSON 粘到面板「账号」页（平台选 **WorkBuddy / CodeBuddy**）→「导入账号」即可。
+（只想拿链接不等待时加 `--url-only`。）
+
+**方式二：从客户端 / 插件导出**
+
 1. 在**本机**用 WorkBuddy 客户端 / 插件导出登录凭据（auth JSON），其中含 `accessToken`、`refreshToken`、
    `account.uid`、`account.nickname`。
 2. 凭据里的 `realm`（`cn` / `global`）或 `domain` 会被自动识别，用于选择国内版 / 国际版上游。
 3. 面板「账号」→ 平台选 **WorkBuddy / CodeBuddy** → 粘贴整份 JSON → 「导入账号」。
+
+支持的粘贴格式（嵌套形或扁平形，`camelCase` 与 `snake_case` 都认）：
 
 ```json
 {"auth":{"accessToken":"eyJ…","refreshToken":"eyJ…","expiresAt":1780000000,"realm":"cn"},
  "account":{"uid":"123456789","nickname":"我的号"},"device_token":""}
 ```
 
-> WorkBuddy 桌面端 5.6+ 的本地登录态是**加密的**（解密密钥来自它自己的 Electron，服务器上拿不到），
-> 所以必须在本机导出成明文 auth JSON 后再粘贴。
+```json
+{"access_token":"eyJ…","refresh_token":"eyJ…","expires_in":5184000,
+ "domain":"www.codebuddy.cn","realm":"cn","uid":"123456789","nickname":"我的号"}
+```
 
 #### MiniMax Code
 
@@ -367,7 +388,8 @@ trae_panel/          服务端（FastAPI）
   web.py             FastAPI 路由 + 定时调度
   __main__.py        入口：python -m trae_panel
 panel/index.html     内嵌 Web 面板（无构建依赖）
-export_local.py      本机登录态导出工具
+export_local.py      本机登录态导出工具（Trae）
+export_workbuddy.py  WorkBuddy 凭据导出工具（设备授权登录）
 Dockerfile / docker-compose.yml / deploy.sh / .env.example
 ```
 
