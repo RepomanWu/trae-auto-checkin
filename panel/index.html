@@ -158,9 +158,13 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
       </div>
     </div>
     <div class="panel">
-      <h3>可用模型 <span class="muted" style="font-size:12px" id="gwStat"></span></h3>
-      <table><thead><tr><th>模型 ID（填这个）</th><th>显示名</th><th>操作</th></tr></thead><tbody id="gwModels"></tbody></table>
-      <p class="muted" style="font-size:12px;margin-top:8px">带 <code>/</code>、<code>cn:</code> 等前缀的多是<b>自定义/第三方模型</b>，聊天接口通常调不通；不确定就点「测试」实测（会用掉极少量积分）。</p>
+      <h3>内置预设模型 <span class="tag ok">聊天接口可直接调用</span> <span class="muted" style="font-size:12px" id="gwStat"></span></h3>
+      <table><thead><tr><th>模型 ID（填这个）</th><th>显示名</th><th>操作</th></tr></thead><tbody id="gwModelsPreset"></tbody></table>
+    </div>
+    <div class="panel">
+      <h3>自定义 / 第三方模型 <span class="tag mut">聊天接口通常不支持</span></h3>
+      <p class="muted" style="font-size:12px">这些是你（或某个账号）在 Trae 里配置的自定义模型：虽然会出现在模型清单里，但上游聊天接口不接受它们的 <code>model_name</code>，调用会返回 <code>the model is unknown</code>。想确认就点「测试」。</p>
+      <table><thead><tr><th>模型 ID</th><th>显示名</th><th>操作</th></tr></thead><tbody id="gwModelsCustom"></tbody></table>
     </div>
     <div class="panel">
       <h3>接入示例</h3>
@@ -433,13 +437,14 @@ async function loadGateway(){
     $('#gwBase').value = base;
     $('#gwStat').textContent = `（账号 ${d.account_count} 个，其中带真实设备指纹 ${d.keyed_accounts} 个）`;
     const models = d.models || [];
-    $('#gwModels').innerHTML = models.length ? models.map(m =>
-      `<tr><td><code>${m.name}</code></td><td>${m.display_name}</td>
-       <td><button class="btn" onclick="copyText('${m.name}')">复制</button>
-           <button class="btn" onclick="testModel('${esc(m.name)}', this)">测试</button>
-           <span class="tag mut">未测</span></td></tr>`).join('')
+    const preset = models.filter(m => m.preset);
+    const custom = models.filter(m => !m.preset);
+    $('#gwModelsPreset').innerHTML = models.length
+      ? (preset.length ? preset.map(modelRow).join('') : '<tr><td colspan="3" class="muted">无</td></tr>')
       : '<tr><td colspan="3" class="muted">暂无模型（请先在「账号」导入账号，且建议用 export_local.py 的 JSON 以带上真实设备指纹）</td></tr>';
-    const first = models[0] ? models[0].name : 'deepseek-V3';
+    $('#gwModelsCustom').innerHTML = custom.length ? custom.map(modelRow).join('')
+      : '<tr><td colspan="3" class="muted">无</td></tr>';
+    const first = ((preset[0] || models[0] || {}).name) || 'deepseek-V3';
     const keyv = d.api_key || '<你的key>';
     $('#gwSnippet').innerHTML =
       `<div>curl：</div><div class="muted">curl ${base}/chat/completions \\<br>&nbsp;&nbsp;-H "Authorization: Bearer ${escapeHtml(keyv)}" -H "Content-Type: application/json" \\<br>&nbsp;&nbsp;-d '{"model":"${esc(first)}","messages":[{"role":"user","content":"hello"}]}'</div>` +
@@ -448,6 +453,12 @@ async function loadGateway(){
   }catch(e){ if(e.message!=='unauthorized') toast('网关信息加载失败：'+e.message, true); }
 }
 function esc(s){ return String(s).replace(/'/g, ""); }
+function modelRow(m){
+  return `<tr><td><code>${m.name}</code></td><td>${m.display_name}</td>
+    <td><button class="btn" onclick="copyText('${m.name}')">复制</button>
+        <button class="btn" onclick="testModel('${esc(m.name)}', this)">测试</button>
+        <span class="tag mut">未测</span></td></tr>`;
+}
 async function testModel(name, btn){
   const tag = btn.nextElementSibling;
   btn.disabled = true;

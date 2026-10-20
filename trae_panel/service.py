@@ -134,17 +134,29 @@ def gateway_accounts() -> list:
     return with_fp + [a for a in accounts if not a.get("from_client")]
 
 
+def _looks_custom(name: str) -> bool:
+    """上游没给 is_preset 时的兜底判断：带 / 或 : 的多是自定义/第三方模型。"""
+    return ("/" in name) or (":" in name)
+
+
 def gateway_models(cfg: dict) -> list:
-    """汇总各账号可用模型（name -> display_name）。"""
+    """汇总各账号可用模型，并区分「内置预设」与「自定义/第三方」。"""
     device_cfg = cfg.get("device") or {}
     out = {}
     for a in gateway_accounts():
         try:
             for m in gateway.fetch_models(a, device_cfg, cfg):
-                out.setdefault(m["name"], m["display_name"])
+                preset = m.get("preset")
+                if preset is None:
+                    preset = not _looks_custom(m["name"])
+                out.setdefault(m["name"], {"display_name": m["display_name"],
+                                           "preset": bool(preset)})
         except Exception as e:
             log("获取模型列表失败（{}）：{}".format(a.get("label"), e), "system")
-    return [{"name": k, "display_name": v} for k, v in out.items()]
+    models = [{"name": k, "display_name": v["display_name"], "preset": v["preset"]}
+              for k, v in out.items()]
+    models.sort(key=lambda x: (not x["preset"], x["name"]))   # 内置在前
+    return models
 
 
 def test_gateway_model(model: str) -> dict:

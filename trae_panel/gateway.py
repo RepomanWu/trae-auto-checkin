@@ -60,7 +60,9 @@ def fetch_models(account: dict, device_cfg: dict, cfg: dict, use_cache: bool = T
     models = []
     for c in (r.json() or {}).get("model_configs") or []:
         if c.get("name"):
-            models.append({"name": c["name"], "display_name": c.get("display_name") or c["name"]})
+            models.append({"name": c["name"],
+                           "display_name": c.get("display_name") or c["name"],
+                           "preset": c.get("is_preset")})   # True=内置预设, False=自定义, None=未知
     _model_cache[key] = {"at": time.time(), "models": models}
     return models
 
