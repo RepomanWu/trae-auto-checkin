@@ -1,12 +1,17 @@
 ---
 name: trae-auto-checkin
-description: Deploy the Trae multi-account check-in panel via Docker and import Trae accounts. Use when the user asks to deploy trae-auto-checkin, set up a Trae auto check-in panel, or monitor Trae credits. Do not use for unrelated Trae coding tasks.
+description: Deploy the multi-platform check-in panel (Trae / WorkBuddy / MiniMax / Qoder + API upstreams) via Docker and import accounts. Use when the user asks to deploy trae-auto-checkin, set up an auto check-in panel, or monitor credits. Do not use for unrelated coding tasks.
 ---
 
-# Trae Auto Check-in Panel
+# Auto Check-in Panel
 
-Deploy this repository's self-hosted panel: multi-account Trae CN check-in, task center,
-credit/usage monitoring, notifications, all behind a key-protected web UI.
+Deploy this repository's self-hosted panel: multi-account daily check-in across several
+platforms, task center, credit/usage monitoring, notifications, and an OpenAI-compatible
+gateway — all behind a key-protected web UI.
+
+Supported platforms: **Trae CN** (check-in + usage + gateway), **WorkBuddy / CodeBuddy**
+(check-in + credits + travel + activity), **MiniMax Code** (check-in + quota), **Qoder**
+(check-in), and API-key upstreams **DeepSeek / Xiaomi MiMo / Qianfan / Bailian / Volcengine**.
 
 ## Prerequisites
 
@@ -73,6 +78,18 @@ not just the bare ciphertext. The upstream chat endpoint rate-limits requests co
 random device fingerprints (returns 4011), so accounts without real fingerprints will fail
 on `/v1/chat/completions`.
 
+### Other platforms
+
+In the 账号 view, switch 平台 and paste the matching credential (all are
+"export locally → import into the panel"):
+
+| Platform | Paste |
+|---|---|
+| WorkBuddy / CodeBuddy | exported **auth JSON** (`accessToken` / `refreshToken` / `uid`) |
+| MiniMax Code | `minimax-agent-config.json` (has `tokens.accessToken`) or the bare accessToken |
+| Qoder | `access_token` (`dt-…`) or `access_token\|refresh_token` (`drt-…`); intl needs JSON with device risk triple |
+| API platforms (DeepSeek / MiMo / Qianfan / Bailian / Volcengine) | the **API Key**; optionally `base_url\|API Key` or JSON with `models` |
+
 ## 3. Configure key and source
 
 Panel → 设置 (saved values take effect immediately, no restart):
@@ -110,6 +127,13 @@ curl http://<server-ip>:7864/v1/chat/completions \
 Requires accounts imported with the client's real device fingerprint (see step 2), and the
 gateway should not be exposed publicly without an API key.
 
+### API upstreams (DeepSeek / MiMo / Qianfan / Bailian / Volcengine)
+
+Import each provider's **API Key** as an account (platform = that provider). Their models
+then appear in `/v1/models` as `<platform>/<model>` (e.g. `deepseek/deepseek-chat`). When a
+request's `model` matches an API upstream, the gateway forwards it straight through (those
+upstreams already speak the OpenAI protocol); otherwise it falls back to the Trae pool.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -124,4 +148,6 @@ gateway should not be exposed publicly without an API key.
 
 - Use only accounts you own.
 - `data/accounts.json` holds plaintext tokens; it is git-ignored. Never commit or share `data/`, `.env`, or `trae_export.json`.
-- The endpoints and decryption are reverse-engineered from the official client and may change; they only cover verified features (daily check-in and usage query). Other endpoints are not implemented.
+- The endpoints and decryption are reverse-engineered from the official clients / public
+  community implementations and may change; only verified features are implemented
+  (check-in, usage/credits, WorkBuddy travel & activity).

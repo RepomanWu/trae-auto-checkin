@@ -164,6 +164,11 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
       </div>
     </div>
     <div class="panel">
+      <h3>API 型上游 <span class="tag mut">DeepSeek / 小米 MiMo / 千帆 / 百炼 / 方舟</span></h3>
+      <p class="muted" style="font-size:12px">在「账号」页选中对应平台并填入 <b>API Key</b>，即可把这些官方 API 接入网关。模型 ID 形如 <code>deepseek/deepseek-chat</code>；方舟等需在 JSON 里指定 <code>models</code>。这些平台没有每日签到。</p>
+      <table><thead><tr><th>平台</th><th>备注</th><th>Base URL</th><th>模型</th></tr></thead><tbody id="gwUpstreams"></tbody></table>
+    </div>
+    <div class="panel">
       <h3>内置预设模型 <span class="tag ok">聊天接口可直接调用</span> <span class="muted" style="font-size:12px" id="gwStat"></span></h3>
       <table><thead><tr><th>模型 ID（填这个）</th><th>显示名</th><th>操作</th></tr></thead><tbody id="gwModelsPreset"></tbody></table>
     </div>
@@ -348,7 +353,12 @@ async function delAccount(id){ if(!confirm('确认删除该账号？')) return;
 async function oneCheckin(id){ try{ const r = await api('/api/accounts/'+id+'/checkin','POST'); toast(r.results[0].detail); loadAccounts(); loadOverview(); }catch(e){ toast(e.message,true);} }
 async function runCheckin(){ try{ const r = await api('/api/checkin','POST',{}); toast('签到完成：'+r.results.map(x=>x.label+(x.ok?'✔':'✘')).join('、')); loadAll(); }catch(e){ toast(e.message,true);} }
 async function refreshUsage(){ try{ await api('/api/usage/refresh','POST',{}); toast('用量已刷新'); loadAll(); }catch(e){ toast(e.message,true);} }
-async function runAllTasks(){ try{ await api('/api/tasks/run','POST',{task_id:'checkin'}); await api('/api/tasks/run','POST',{task_id:'usage'}); toast('任务已执行'); loadAll(); }catch(e){ toast(e.message,true);} }
+async function runAllTasks(){
+  try{
+    for(const t of ['checkin','usage','travel','idle']){ await api('/api/tasks/run','POST',{task_id:t}); }
+    toast('已执行全部任务（签到 / 用量 / 旅行 / 活跃）'); loadAll();
+  }catch(e){ toast(e.message,true); }
+}
 
 async function loadUsage(){
   try{
@@ -478,6 +488,12 @@ async function loadGateway(){
       : '<tr><td colspan="3" class="muted">暂无模型（请先在「账号」导入账号，且建议用 export_local.py 的 JSON 以带上真实设备指纹）</td></tr>';
     $('#gwModelsCustom').innerHTML = custom.length ? custom.map(modelRow).join('')
       : '<tr><td colspan="3" class="muted">无</td></tr>';
+    const ups = d.api_upstreams || [];
+    $('#gwUpstreams').innerHTML = ups.length ? ups.map(u=>`<tr>
+      <td>${platformName(u.platform)}</td><td>${fmt(u.label)}</td>
+      <td class="muted" style="font-size:12px">${escapeHtml(u.host||'')}</td>
+      <td class="muted" style="font-size:12px">${(u.models||[]).join('、')||'（未配置模型）'}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="muted">未配置（在「账号」页导入对应平台的 API Key）</td></tr>';
     const first = ((preset[0] || models[0] || {}).name) || 'deepseek-V3';
     const keyv = d.api_key || '<你的key>';
     $('#gwSnippet').innerHTML =

@@ -272,3 +272,69 @@ def collect_non_stream(model: str, first_events, rest_iter) -> dict:
                      "finish_reason": finish}],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     }
+
+
+# ---- API 型平台（OpenAI 兼容上游直通）----
+def api_upstreams() -> list:
+    """返回所有 API 型平台（kind=api）的账号：每个账号即一个上游（base_url + API Key）。"""
+    from . import platforms
+    from .store import load_accounts
+    out = []
+    for a in load_accounts():
+        pid = a.get("platform") or "trae"
+        if platforms.exists(pid) and platforms.get(pid).get("kind") == "api":
+            out.append(a)
+    return out
+
+
+def api_models() -> list:
+    """API 型上游可用的模型（对外 id 形如 `deepseek/deepseek-chat`）。"""
+    out = []
+    for a in api_upstreams():
+        pid = a.get("platform")
+        for m in (a.get("models") or []):
+            out.append({"id": "{}/{}".format(pid, m), "platform": pid, "model": m,
+                        "label": a.get("label") or pid})
+    return out
+
+
+def resolve_api_upstream(requested: str):
+    """把请求的模型名解析到某个 API 型上游；返回 (account, upstream_model) 或 (None, None)。
+
+    接受 `平台id/模型名` 与裸模型名两种写法。
+    """
+    req = (requested or "").strip()
+    if not req:
+        return None, None
+    for a in api_upstreams():
+        pid = a.get("platform")
+        for m in (a.get("models") or []):
+            if req == m or req == "{}/{}".format(pid, m):
+                return a, m
+    return None, None
+
+
+def openai_upstream_chat(account: dict, model: str, messages: list, stream: bool, cfg: dict):
+    """直通调用 OpenAI 兼容上游（上游本身就是 OpenAI 协议，无需转换）。"""
+    base = (account.get("host") or "").rstrip("/")
+    if not base:
+        raise GatewayError("该上游未配置 base_url")
+    url = base + "/chat/completions"
+    headers = {
+        "Authorization": "Bearer " + str(account.get("token") or ""),
+        "Content-Type": "application/json",
+    }
+    timeout = int((cfg.get("gateway") or {}).get("timeout") or 300)
+    body = {"model": model, "messages": messages, "stream": bool(stream)}
+    try:
+        return requests.post(url, headers=headers, json=body, stream=bool(stream), timeout=timeout)
+    except requests.RequestException as e:
+        raise GatewayError("连接上游失败：{}".format(e))
+
+
+def relay_stream(resp):
+    """把上游 SSE 原样转出（保持 OpenAI 帧格式）。"""
+    for raw in resp.iter_lines(decode_unicode=True):
+        if raw is None:
+            continue
+        yield raw + "\n"

@@ -18,29 +18,34 @@
 |---|---|
 | 🔑 **多账号管理** | 面板导入 / 删除账号；导入即解密并保存凭证，自动用 refreshToken 续期 |
 | ⏰ **自动签到** | 每日定时（可配多个时刻）对全部账号签到，幂等安全，可手动一键触发 |
-| 🧭 **任务中心** | 按账号 × 任务展示完成状态并支持一键执行（当前内置「每日签到」「用量快照」） |
+| 🧭 **任务中心** | 按平台 × 任务展示完成状态并支持一键执行（签到 / 用量 / 旅行 / 活跃） |
+| 🌐 **多平台** | Trae / WorkBuddy / MiniMax / Qoder 每日签到；DeepSeek / MiMo / 千帆 / 百炼 / 方舟 作网关上游 |
 | 📊 **用量监控** | 查询积分总量 / 已消耗 / 剩余 / 积分包到期，按天留存历史并出趋势图 |
 | 🔔 **通知** | 邮件（SMTP）+ 企业微信机器人，开关独立，支持测试发送 |
-| 🖥️ **Web 面板** | 概览 / 账号 / 用量 / 任务 / 日志 / 设置六个视图，访问密钥保护 |
+| 🖥️ **Web 面板** | 概览 / 账号 / 用量 / 任务 / API 接入 / 日志 / 设置七个视图，访问密钥保护 |
 | 🐳 **一键部署** | `docker-compose` 单命令拉起，`.env` 填 key 即可 |
 
 ## 支持平台（多平台框架）
 
-面板按「平台」组织账号与任务。目前 **Trae CN 已完整实现**，其余平台在面板里显示为「待接入」（带导入方式与任务说明的元数据）。
-新增平台只需在 [trae_panel/platforms/](trae_panel/platforms/) 下加一个 `<id>.py`（提供 `import_account` / `checkin` / `usage`），注册表与面板会自动发现。
+面板按「平台」组织账号与任务。新增平台只需在 [trae_panel/platforms/](trae_panel/platforms/) 下加一个 `<id>.py`
+（提供 `import_account` / `checkin` / `usage`，需要额外任务的再加 `run_task`），注册表与面板会自动发现。
 
-| 平台 | 类型 | 每日签到 / 任务 | 状态 |
+| 平台 | 类型 | 任务 | 状态 |
 |---|---|---|---|
 | **Trae CN** | 客户端登录态 | 每日签到、用量/积分监控 | ✅ 已实现（含 OpenAI 兼容网关） |
-| **WorkBuddy / CodeBuddy**（腾讯） | 客户端登录态 | 签到（加油站）、派猫旅行、活跃点亮、成长任务 | ⏳ 待接入 |
-| **MiniMax Code** | 客户端登录态 | 每日签到 400 积分（第 4/7 天 1000，一周 4000） | ⏳ 待接入 |
-| **Qoder**（通义灵码） | 客户端登录态 | 每天 10 点领 100 积分 | ⏳ 待接入 |
-| **DeepSeek / 小米 MiMo / 百度千帆 / 阿里百炼 / 火山方舟** | API Key | 官方**无每日签到**机制，接进来只能作网关上游 | ⏳ 待接入 |
+| **WorkBuddy / CodeBuddy**（腾讯） | 客户端凭据 | 签到、余额/积分、派猫猫旅行、活跃点亮/连登兑换/抽奖 | ✅ 已实现 |
+| **MiniMax Code** | 客户端凭据 | 每日签到 400 积分（第 4/7 天 1000，一周 4000）、配额/剩余积分 | ✅ 已实现 |
+| **Qoder**（通义灵码） | 客户端凭据 | 每日签到（每天 10:00 UTC+8 领 100 Credits） | ✅ 已实现（CN；国际版需本机 UMID 设备身份） |
+| **DeepSeek 官方 / 小米 MiMo / 百度千帆 / 阿里百炼 / 火山方舟** | API Key | 官方**无每日签到**，作为网关上游 | ✅ 已实现 |
 
-> 说明：DeepSeek 官方 API 只有新用户一次性赠送额度、之后按量付费；小米 MiMo 只有「登录去 Balance 领一次」和 MiMo Code 的每日 1000 次联网搜索。这两家**没有可自动化的每日签到**，所以接了也没签到可跑。
+> 说明：DeepSeek 官方 API 只有新用户一次性赠送额度、之后按量付费；这类平台没有可自动化的每日签到，
+> 所以「接入」指的是把它们作为面板网关（`/v1`）的 **OpenAI 兼容上游**：在「账号」页选中对应平台、填入 API Key 即可。
 >
-> WorkBuddy 5.6+ 的登录凭据是**加密的**（解密密钥来自 WorkBuddy 自己的 Electron 二进制，服务器上拿不到），
-> 所以它即使接入也只能沿用「**本机导出 → 面板导入 → 服务器定时跑**」这套模式。
+> WorkBuddy 桌面端 5.6+ 的本地登录态是**加密的**（解密密钥来自它自己的 Electron 二进制，服务器上拿不到），
+> 因此 WorkBuddy 走的是「**本机导出 auth JSON → 面板导入 → 服务器定时跑**」这条路。
+>
+> 说明：各平台的接口均为**逆向自官方客户端 / 社区公开实现**的非公开协议，可能随客户端版本变化；
+> 仅供管理**你自己的账号**。
 
 ## 原理
 
@@ -170,6 +175,20 @@ PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 > ⚠️ `storage.json` 与 `trae_export.json` 都含可解出账号令牌的密文，属敏感文件：
 > 不要提交到仓库、不要发给他人；导入完成后建议删除 `trae_export.json`。
 
+### 其他平台账号导入（同样「本机导出 → 面板导入」）
+
+导入时在「账号」页把「平台」切到对应项，「登录态内容」按下面格式粘贴：
+
+| 平台 | 粘贴内容 |
+|---|---|
+| **WorkBuddy / CodeBuddy** | 本机导出的 **auth JSON**（含 `accessToken` / `refreshToken` / `uid`；嵌套形 `{"auth":{…},"account":{…}}` 或扁平形都可）。凭据可从 WorkBuddy 插件 / 登录工具导出 |
+| **MiniMax Code** | `minimax-agent-config.json` 的**全文**（含 `tokens.accessToken`），或直接粘贴 **accessToken（JWT）** |
+| **Qoder（通义灵码）** | `access_token`（形如 `dt-xxx`），或 `access_token\|refresh_token`（`drt-xxx`）。国际版粘贴 JSON：`{"token":"dt-…","refresh_token":"drt-…","region":"global","machine_token":"…","machine_code":"…","machine_type":"…"}`（设备风控三件套由本机 UMID 组件生成） |
+| **API 型平台**（DeepSeek / MiMo / 千帆 / 百炼 / 方舟） | 直接填 **API Key**；也可填 `base_url\|API Key` 覆盖默认端点，或填 JSON：`{"api_key":"…","base_url":"…","models":["…"]}`（方舟等需要在这里指定模型 ID） |
+
+> 这些平台同样遵循「本机导出 → 面板导入 → 服务器定时跑」的模式：服务端不接触客户端登录流程，
+> 只保存导出后的凭据，用于调用官方接口。
+
 ## 配置（key 与来源）
 
 面板「设置」视图可在线修改，保存后**热生效**（无需重启）：
@@ -196,6 +215,19 @@ Cline、LangChain、OpenAI SDK 等直接调用，**消耗的是你的 Trae 积�
 
 已实现 `GET /v1/models` 与 `POST /v1/chat/completions`（流式 SSE / 非流式）。
 多账号按顺序尝试，某个号失败自动换下一个；`<think>` 形式回传思考过程。
+
+### API 型上游（DeepSeek / 小米 MiMo / 千帆 / 百炼 / 方舟）
+
+除了 Trae 账号，网关也能直接转发到上面几家的**官方 OpenAI 兼容 API**：
+在「账号」页选中对应平台、填入 **API Key** 后，这些模型就会出现在 `/v1/models` 里，
+模型 ID 形如 **`deepseek/deepseek-chat`**、`bailian/qwen-plus`、`volcengine/ep-xxxx`。
+
+- 请求里 `model` 命中某个 API 上游 → 网关把请求**原样直通**到该上游（上游本身就是 OpenAI 协议，不做转换）；
+- 没命中 → 回退到 Trae 账号池（原来的行为）。
+- 上游端点默认值：DeepSeek `https://api.deepseek.com/v1`、MiMo `https://api.xiaomimimo.com/v1`、
+  千帆 `https://qianfan.baidubce.com/v2`、百炼 `https://dashscope.aliyuncs.com/compatible-mode/v1`、
+  方舟 `https://ark.cn-beijing.volces.com/api/v3`；都可用 `base_url|API Key` 或 JSON 覆盖。
+- 方舟使用推理接入点 / 模型 ID，需在导入 JSON 里用 `models` 指定。
 
 > **模型 ID 怎么选**：清单里的模型分两类——
 > - **内置预设模型**：`seed_m8`、`Doubao_1_5_thinking_pro`、`deepseek-V3`、`deepseek-V3-0324`
@@ -225,12 +257,23 @@ curl http://<服务器IP>:7864/v1/chat/completions \
 
 ## 任务中心说明（重要）
 
-Trae CN 官方目前**可稳定调用**的自动化接口只有「每日签到」与「用量查询」；
-官方「成长任务」类接口**未公开**，社区也无可验证的逆向成果，因此本项目**不臆造接口**，
-只内置上述两个已验证任务。
+任务中心按平台分组展示每条任务在各账号上的状态，可单账号「执行」，也可「一键执行全部任务」
+（会依次跑 **签到 / 用量 / 旅行 / 活跃**，只对声明了该任务的平台生效）。
 
-扩展方式：在 `trae_panel/service.py` 的 `TASKS` 里加一条任务元数据，
-并实现对应的处理函数（放到 `run_task` 的分支），面板会自动出现该任务。
+已内置的可验证任务：
+
+| 任务 | 适用平台 | 说明 |
+|---|---|---|
+| 每日签到 | Trae / WorkBuddy / MiniMax / Qoder | 幂等，重复执行安全 |
+| 用量快照 | Trae / WorkBuddy / MiniMax | 剩余积分 / 额度趋势 |
+| 派猫猫旅行 | WorkBuddy | 无猫先领养，空闲则派出，到站则领奖 |
+| 活跃点亮 | WorkBuddy | 活跃上报 + 连登兑换 + 抽奖 + 礼包/补偿 |
+
+> 关于 Trae 的「成长任务」：官方该类接口**未公开**、也无可验证的逆向成果，本项目**不臆造接口**，
+> 因此只内置上述已验证任务。WorkBuddy 的「成长任务一键完成（17 项事件链）」同理未纳入。
+
+扩展方式：在平台适配器（`trae_panel/platforms/<id>.py`）里提供 `run_task(task_id, account, cfg)`，
+并在注册表 `PLATFORMS` 的 `tasks` 里声明该任务 id，面板会自动出现。
 
 ## 目录结构
 
@@ -239,8 +282,16 @@ trae_panel/          服务端（FastAPI）
   config.py          配置加载/保存（data/config.json + 环境变量）
   crypto.py          tc 登录态解密、令牌刷新、出站指纹头
   api.py             Trae 接口调用（含 401 自动刷新、瞬时错误重试）
+  gateway.py         OpenAI 兼容网关（Trae 对话转发 + API 型上游直通）
   store.py           账号与历史落盘（原子写）
   service.py         业务编排：导入、签到、任务、用量快照、通知
+  platforms/         多平台适配器
+    __init__.py      平台注册表（元数据 + 自动发现）
+    workbuddy.py     WorkBuddy/CodeBuddy（签到/旅行/活跃）
+    minimax.py       MiniMax Code（签到/配额）
+    qoder.py         Qoder 通义灵码（签到）
+    _openapi.py      API 型上游公共工厂
+    deepseek.py / mimo.py / qianfan.py / bailian.py / volcengine.py
   notify.py          邮件 / 企业微信
   log.py             面板运行日志
   web.py             FastAPI 路由 + 定时调度

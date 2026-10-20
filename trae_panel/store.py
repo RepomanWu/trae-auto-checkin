@@ -63,7 +63,8 @@ def upsert_account(account: dict) -> dict:
     for i, a in enumerate(accounts):
         if (a.get("platform"), a.get("uid"), a.get("host")) == key:
             # 保留原 id/指纹/创建时间，更新凭证
-            for f in ("label", "token", "refresh_token", "region", "expired_at"):
+            for f in ("label", "token", "refresh_token", "region", "expired_at",
+                      "domain", "enterprise_id", "device_token"):
                 if account.get(f):
                     a[f] = account[f]
             # 只有来自客户端真实指纹的导入才覆盖设备信息（避免随机指纹盖掉真实值）

@@ -35,7 +35,7 @@ def _require_key(x_admin_key: str | None = Header(default=None, alias="X-Admin-K
 
 def _public_account(a: dict) -> dict:
     """脱敏：对外不返回 token / refreshToken。"""
-    out = {k: v for k, v in a.items() if k not in ("token", "refresh_token")}
+    out = {k: v for k, v in a.items() if k not in ("token", "refresh_token", "device_token")}
     return out
 
 
@@ -291,8 +291,11 @@ def api_gateway(x_admin_key: str | None = Header(default=None, alias="X-Admin-Ke
     cfg = load_config()
     gw = cfg.get("gateway") or {}
     models = service.gateway_models(cfg) if gw.get("enabled") else []
+    ups = [{"platform": a.get("platform"), "label": a.get("label"),
+            "host": a.get("host"), "models": a.get("models") or []}
+           for a in gateway.api_upstreams()]
     return {"enabled": bool(gw.get("enabled")), "api_key": gw.get("api_key") or "",
-            "intent": gw.get("intent") or "", "models": models,
+            "intent": gw.get("intent") or "", "models": models, "api_upstreams": ups,
             "account_count": len(service.gateway_accounts()),
             "keyed_accounts": sum(1 for a in service.gateway_accounts() if a.get("from_client"))}
 
@@ -312,9 +315,12 @@ def v1_models(request: Request):
     cfg, gw = _gateway_cfg()
     _check_gateway_key(request, gw)
     models = service.gateway_models(cfg)
-    return {"object": "list", "data": [
-        {"id": m["name"], "object": "model", "created": int(time.time()),
-         "owned_by": "trae", "display_name": m["display_name"]} for m in models]}
+    data = [{"id": m["name"], "object": "model", "created": int(time.time()),
+             "owned_by": "trae", "display_name": m["display_name"]} for m in models]
+    for m in gateway.api_models():          # API 型上游（DeepSeek/百炼/方舟…）
+        data.append({"id": m["id"], "object": "model", "created": int(time.time()),
+                     "owned_by": m["platform"], "display_name": m["label"] + " · " + m["model"]})
+    return {"object": "list", "data": data}
 
 
 @app.post("/v1/chat/completions")
@@ -332,6 +338,27 @@ async def v1_chat_completions(request: Request):
     if stream is None:
         stream = True
     requested = payload.get("model") or ""
+
+    # 优先匹配 API 型上游（DeepSeek / 小米 MiMo / 千帆 / 百炼 / 方舟 等）
+    api_acc, api_model = gateway.resolve_api_upstream(requested)
+    if api_acc:
+        try:
+            resp = gateway.openai_upstream_chat(api_acc, api_model, messages, bool(stream), cfg)
+        except Exception as e:
+            raise HTTPException(502, "上游调用失败：{}".format(e))
+        if resp.status_code != 200:
+            raise HTTPException(502, "上游 API 失败：HTTP {} {}".format(
+                resp.status_code, (resp.text or "")[:200]))
+        log("网关命中 API 上游「{}」→ 模型 {}（请求 {}）".format(
+            api_acc.get("label"), api_model, requested), "gateway")
+        if stream:
+            return StreamingResponse(gateway.relay_stream(resp), media_type="text/event-stream",
+                                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        try:
+            return JSONResponse(resp.json())
+        except ValueError:
+            raise HTTPException(502, "上游返回非 JSON：{}".format((resp.text or "")[:200]))
+
     accounts = service.gateway_accounts()
     if not accounts:
         raise HTTPException(400, "还没有账号，请先在面板导入（建议用 export_local.py 的 JSON 以带上真实设备指纹）")

@@ -85,7 +85,15 @@ def import_account(blob: str, label: str = "", platform: str = "trae") -> dict:
         raise ValueError("未知平台：{}".format(platform))
     if platform != "trae":
         meta = platforms.get(platform)
-        raise ValueError("「{}」的账号导入尚未接入（清单里显示为待接入）".format(meta.get("name")))
+        ad = platforms.adapter(platform)
+        if ad is None or not hasattr(ad, "import_account"):
+            raise ValueError("「{}」的账号导入尚未接入（清单里显示为待接入）".format(meta.get("name")))
+        account = ad.import_account(blob, label)
+        account.setdefault("platform", platform)
+        saved = upsert_account(account)
+        log("账号已导入/更新：{}（平台={}，uid={}）".format(
+            saved.get("label"), platform, saved.get("uid")), "system")
+        return saved
     cfg = load_config()
     text = (blob or "").strip()
     extra: dict = {}
@@ -136,8 +144,12 @@ def import_account(blob: str, label: str = "", platform: str = "trae") -> dict:
 
 
 def gateway_accounts() -> list:
-    """给网关用的账号顺序：优先带真实指纹的（对话接口对指纹敏感）。"""
-    accounts = load_accounts()
+    """Trae 对话网关用的账号顺序：优先带真实指纹的（对话接口对指纹敏感）。
+
+    只取 trae 账号——API 型平台（DeepSeek/百炼/方舟…）走的是 /v1 的 OpenAI 直通路径，
+    不该混进 Trae 上游轮转。
+    """
+    accounts = [a for a in load_accounts() if (a.get("platform") or "trae") == "trae"]
     with_fp = [a for a in accounts if a.get("from_client")]
     return with_fp + [a for a in accounts if not a.get("from_client")]
 
@@ -218,7 +230,7 @@ def _snapshot_usage(account: dict, client: TraeClient, req_source: int) -> dict:
 def refresh_usage(platform=None, account_ids=None, do_notify=False) -> list:
     cfg = load_config()
     accounts = load_accounts()
-    targets = _pick(cfg, platform, account_ids)
+    targets = _pick(cfg, platform, account_ids, task_id="usage")
     results = []
     for acc in targets:
         label = acc.get("label") or acc.get("uid")
@@ -327,8 +339,11 @@ def _dispatch_usage(acc: dict, cfg: dict):
     return ad.usage(acc, cfg)
 
 
-def _pick(cfg, platform, account_ids):
-    """挑出要处理的账号：只保留「该平台已实现」的，避免调度日志被待接入平台刷屏。"""
+def _pick(cfg, platform, account_ids, task_id=None):
+    """挑出要处理的账号：只保留「该平台已实现」的，避免调度日志被待接入平台刷屏。
+
+    task_id 非空时，还要求该平台在元数据里声明了此任务（未声明的平台跳过）。
+    """
     out = []
     for a in load_accounts():
         pid = a.get("platform") or "trae"
@@ -337,6 +352,8 @@ def _pick(cfg, platform, account_ids):
         if account_ids and a.get("id") not in account_ids:
             continue
         if platforms.adapter(pid) is None:
+            continue
+        if task_id and task_id not in (platforms.get(pid).get("tasks") or []):
             continue
         out.append(a)
     return out
@@ -349,7 +366,7 @@ def run_checkin(platform=None, account_ids=None, do_notify=True) -> list:
         log("没有账号，跳过签到", "task")
         return []
     accounts = load_accounts()
-    targets = _pick(cfg, platform, account_ids)
+    targets = _pick(cfg, platform, account_ids, task_id="checkin")
     log("开始签到，共 {} 个账号".format(len(targets)), "task")
     results = []
     for acc in targets:
@@ -373,6 +390,8 @@ def _task_desc(tid: str) -> str:
     return {
         "checkin": "查询今日签到状态并领取积分（幂等）",
         "usage": "查询积分/额度总量、已消耗、剩余与积分包",
+        "travel": "派猫猫旅行：无猫先领养，空闲则派出，到站则领奖（每日一轮）",
+        "idle": "活跃点亮 + 连登兑换 + 抽奖 + 礼包/补偿（幂等）",
     }.get(tid, "")
 
 
@@ -387,6 +406,9 @@ def _task_state(tid: str, a: dict):
         if u.get("total") is not None:
             return True, "剩余 {} / 总量 {}".format(u.get("remaining"), u.get("total"))
         return False, "未执行"
+    info = st.get(tid)          # 平台自定义任务（如 travel / idle）：适配器写入的描述
+    if info:
+        return True, info
     return False, "未执行"
 
 
@@ -395,7 +417,34 @@ def run_task(task_id: str, platform=None, account_ids=None, do_notify=False) -> 
         return run_checkin(platform=platform, account_ids=account_ids, do_notify=do_notify)
     if task_id == "usage":
         return refresh_usage(platform=platform, account_ids=account_ids, do_notify=do_notify)
-    raise ValueError("未知任务：{}".format(task_id))
+    # 其余任务按平台适配器的 run_task(task_id, account, cfg) 分发
+    cfg = load_config()
+    accounts = load_accounts()
+    results = []
+    for acc in _pick(cfg, platform, account_ids, task_id=task_id):
+        pid = acc.get("platform") or "trae"
+        meta = platforms.get(pid)
+        label = acc.get("label") or acc.get("uid")
+        ad = platforms.adapter(pid)
+        fn = getattr(ad, "run_task", None) if ad else None
+        if fn is None:
+            results.append((label, False, "「{}」不支持该任务".format(meta.get("name"))))
+            continue
+        try:
+            ok, detail = fn(task_id, acc, cfg)
+        except NotImplementedError:
+            ok, detail = False, "「{}」不支持该任务".format(meta.get("name"))
+        except Exception as e:
+            ok, detail = False, "执行失败：{}".format(e)
+        results.append((label, ok, detail))
+        append_checkin({"ts": time.time(), "account_id": acc.get("id"), "platform": pid,
+                        "label": label, "ok": ok, "detail": "{}：{}".format(task_id, detail)})
+        log("[{}] {}：{}".format(label, task_id, detail), "task")
+    save_accounts(accounts)
+    prune_history(cfg.get("history_keep_days", 90))
+    if do_notify:
+        send_notifications(cfg.get("notify"), results)
+    return results
 
 
 def task_status() -> list:
