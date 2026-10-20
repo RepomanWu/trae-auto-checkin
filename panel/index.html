@@ -98,9 +98,13 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
   <section id="view-accounts">
     <div class="panel">
       <h3>添加账号</h3>
-      <p class="muted" style="font-size:12px">在本机执行 <code>python export_local.py</code> 生成导出文件，或直接粘贴客户端 <code>storage.json</code> 中 <code>iCubeAuthInfo://icube.cloudide</code> 的值（登录态密文）。服务端会解密并保存，密文不会被第三方接触。</p>
-      <label>登录态密文</label>
-      <textarea id="accBlob" placeholder="粘贴 iCubeAuthInfo 密文（或明文 JSON）"></textarea>
+      <p class="muted" style="font-size:12px">三种内容都支持，本机<b>不需要装 Python</b>：<br>
+      ① <b>整份 storage.json</b>（最省事）：记事本打开 <code>%APPDATA%\Trae CN\User\globalStorage\storage.json</code>，Ctrl+A / Ctrl+C 全选复制，粘进来即可<br>
+      ② 脚本输出的 JSON：<code>python export_local.py</code>，或没装 Python 时用 <code>powershell -NoProfile -ExecutionPolicy Bypass -File export_local.ps1</code><br>
+      ③ 只复制 <code>iCubeAuthInfo://icube.cloudide</code> 的密文值（签到够用；OpenAI 网关需要用 ① 或 ② 才能带上真实设备指纹）<br>
+      服务端解密后只保存凭证，不经第三方。</p>
+      <label>登录态内容</label>
+      <textarea id="accBlob" placeholder="粘贴：整份 storage.json  /  导出脚本输出的 JSON  /  或仅 iCubeAuthInfo 密文"></textarea>
       <div class="row">
         <div><label>备注名（可留空，默认取用户名）</label><input id="accLabel" placeholder="例如 我的Trae账号"></div>
         <div style="display:flex;align-items:flex-end"><button class="btn primary" onclick="addAccount()">导入账号</button></div>

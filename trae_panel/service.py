@@ -16,7 +16,7 @@ from .api import AuthExpired, TraeClient, checkin_claim, checkin_status, user_us
 from . import gateway
 from .config import DEFAULT_CONFIG, load_config
 from .crypto import (DEFAULT_HOST, account_label, account_region, decrypt_auth_value,
-                     new_fingerprint)
+                     device_info_from_storage, new_fingerprint)
 from .log import log
 from .notify import send_notifications
 from .store import (append_checkin, append_snapshot, load_accounts, prune_history,
@@ -70,13 +70,14 @@ def _packs_simple(packs: list) -> list:
 
 # ---- 账号导入 ----
 def import_account(blob: str, label: str = "") -> dict:
-    """按登录态密文导入/更新账号。
+    """按登录态导入/更新账号。支持三种粘贴内容（都不需要本机装 Python）：
 
-    blob 可以是三种形式之一：
-      1. 纯密文串（`iCubeAuthInfo://icube.cloudide` 的值）
-      2. export_local.py 导出的 JSON 对象/数组（含 blob + 真实设备指纹，推荐）
+      1. 整份 storage.json（推荐给没装 Python 的机器：记事本打开，Ctrl+A/Ctrl+C 粘进来）
+      2. export_local.py / export_local.ps1 导出的 JSON（含真实设备指纹）
+      3. 只有密文串（`iCubeAuthInfo://icube.cloudide` 的值；此时设备指纹是随机的，
+         签到可用，但 OpenAI 网关会被上游按风控限流）
 
-    对话网关需要客户端真实设备指纹，随机指纹会被上游按风控限流，所以推荐形式 2。
+    对话网关需要客户端真实设备指纹，所以优先用 1 或 2。
     """
     cfg = load_config()
     text = (blob or "").strip()
@@ -86,9 +87,15 @@ def import_account(blob: str, label: str = "") -> dict:
             parsed = json.loads(text)
             if isinstance(parsed, list):
                 parsed = parsed[0] if parsed else {}
-            if isinstance(parsed, dict) and parsed.get("blob"):
-                extra = parsed
-                text = str(parsed["blob"]).strip()
+            if isinstance(parsed, dict):
+                if parsed.get("blob"):
+                    extra = parsed
+                    text = str(parsed["blob"]).strip()
+                elif parsed.get("iCubeAuthInfo://icube.cloudide"):
+                    # 整份 storage.json：服务端自己提取密文 + 真实设备指纹
+                    di = device_info_from_storage(parsed)
+                    extra = {k: v for k, v in di.items() if v}
+                    text = str(parsed["iCubeAuthInfo://icube.cloudide"]).strip()
         except Exception:
             extra = {}
 

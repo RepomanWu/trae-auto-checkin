@@ -46,14 +46,24 @@ python -m trae_panel
 
 ## 2. Import accounts
 
-The server has no Trae client, so export login state from a signed-in machine:
+The server has no Trae client, so export login state from a signed-in machine.
+No client-side Python is required — pick any of these:
 
 ```bash
-pip install cryptography
-python export_local.py        # writes trae_export.json and prints each ciphertext
+# Python available:
+pip install cryptography && python export_local.py
 ```
 
-In the panel, open the 账号 view, paste the printed ciphertext, optionally set a
+```powershell
+# No Python (Windows ships PowerShell):
+powershell -NoProfile -ExecutionPolicy Bypass -File export_local.ps1
+```
+
+Or skip tooling entirely: open `%APPDATA%\Trae CN\User\globalStorage\storage.json` in Notepad,
+`Ctrl+A` / `Ctrl+C`, and paste the whole file. The server parses it and extracts the ciphertext
+plus the real device fingerprint by itself.
+
+In the panel, open the 账号 view, paste the JSON line (or the whole storage.json), optionally set a
 remark name, then click 导入账号. The server decrypts it and stores the credential.
 Treat `trae_export.json` as secret and delete it after importing.
 
