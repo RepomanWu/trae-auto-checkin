@@ -157,6 +157,37 @@ PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 也可用环境变量注入（适合 Docker）：`TRAE_PANEL_ADMIN_KEY`、`TRAE_PANEL_PORT`、`TRAE_PANEL_HOST`、`TZ`。
 
+## OpenAI 兼容网关（填 url / key / 模型 ID 在别处调用）
+
+面板可以把 Trae 账号的对话能力以 **OpenAI 兼容接口**暴露出来，供 Cursor、Cherry Studio、
+Cline、LangChain、OpenAI SDK 等直接调用，**消耗的是你的 Trae 积分**。
+
+打开面板 →「API 接入」，那里能直接看到并复制这三项：
+
+| 项 | 填什么 |
+|---|---|
+| **Base URL** | `http://<服务器IP>:7864/v1`（面板里会显示成可复制的一行） |
+| **API Key** | 面板「API 接入」里的网关密钥（留空 = 不校验，仅建议内网） |
+| **模型 ID** | 面板列出的模型 ID（来自你账号的可用模型清单） |
+
+已实现 `GET /v1/models` 与 `POST /v1/chat/completions`（流式 SSE / 非流式）。
+多账号按顺序尝试，某个号失败自动换下一个；`<think>` 形式回传思考过程。
+
+```bash
+curl http://<服务器IP>:7864/v1/chat/completions \
+  -H "Authorization: Bearer <你的key>" -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-V3","messages":[{"role":"user","content":"hello"}]}'
+```
+
+> ⚠️ 两个前提：
+> 1. **账号必须带真实设备指纹**。对话接口对指纹敏感——随机 device/machine id 会被上游按风控
+>    返回 4011 限流。所以导入账号请用 `python export_local.py` 产出的 **JSON**（含 `machine_id` /
+>    `device_id` / `ide_version`），而不要只粘贴密文串。面板「API 接入」里会显示带真实指纹的账号数。
+> 2. 网关与面板共用一个端口，**别暴露到公网**；要开放就务必设置 API Key。
+
+> 说明：上游对话接口（`/api/ide/v1/chat`）与模型清单（`/api/ide/v1/model_list`）为逆向自官方客户端的
+> 非公开实现，可能随客户端版本变化；仅供管理你自己的账号。
+
 ## 任务中心说明（重要）
 
 Trae CN 官方目前**可稳定调用**的自动化接口只有「每日签到」与「用量查询」；

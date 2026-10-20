@@ -59,6 +59,12 @@ def upsert_account(account: dict) -> dict:
             for f in ("label", "token", "refresh_token", "region", "expired_at"):
                 if account.get(f):
                     a[f] = account[f]
+            # 只有来自客户端真实指纹的导入才覆盖设备信息（避免随机指纹盖掉真实值）
+            if account.get("from_client"):
+                for f in ("device_id", "machine_id", "ide_version", "ide_version_code",
+                          "device_type", "os_version", "from_client"):
+                    if account.get(f):
+                        a[f] = account[f]
             a["updated_at"] = int(time.time())
             accounts[i] = a
             save_accounts(accounts)

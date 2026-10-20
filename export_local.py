@@ -17,7 +17,7 @@ import os
 import sys
 from pathlib import Path
 
-from trae_panel.crypto import account_label, decrypt_auth_value
+from trae_panel.crypto import account_label, decrypt_auth_value, device_info_from_storage
 
 AUTH_KEY = "iCubeAuthInfo://icube.cloudide"
 DEFAULT_DIRS = ["Trae CN", "TRAE SOLO CN", "Trae", "TRAE SOLO"]
@@ -48,6 +48,7 @@ def scan(app_dirs):
                 continue
             seen.add(key)
             entry = {"app_dir": name, "blob": enc}
+            entry.update(device_info_from_storage(storage))
             try:
                 auth = decrypt_auth_value(enc)
                 entry["label"] = account_label(auth, name)

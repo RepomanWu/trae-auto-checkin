@@ -11,10 +11,10 @@ from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from fastapi import Body, FastAPI, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
-from . import service
+from . import gateway, service
 from .config import BASE_DIR, load_config, save_config
 from .log import log, recent
 from .store import delete_account, load_accounts, load_history
@@ -250,3 +250,88 @@ def api_set_config(payload: dict = Body(...),
 def api_notify_test(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
     _require_key(x_admin_key)
     return service.test_notify()
+
+
+# ---- OpenAI 兼容网关 ----
+def _gateway_cfg():
+    cfg = load_config()
+    gw = cfg.get("gateway") or {}
+    if not gw.get("enabled"):
+        raise HTTPException(403, "网关未启用（面板「设置」里开启）")
+    return cfg, gw
+
+
+def _check_gateway_key(request: Request, gw: dict):
+    expected = (gw.get("api_key") or "").strip()
+    if not expected:
+        return
+    supplied = request.headers.get("authorization") or ""
+    if supplied.lower().startswith("bearer "):
+        supplied = supplied[7:].strip()
+    else:
+        supplied = request.headers.get("x-api-key") or ""
+    if not supplied or not secrets.compare_digest(supplied, expected):
+        raise HTTPException(401, "网关密钥错误：请在客户端填 Authorization: Bearer <key>")
+
+
+@app.get("/api/gateway")
+def api_gateway(x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    _require_key(x_admin_key)
+    cfg = load_config()
+    gw = cfg.get("gateway") or {}
+    models = service.gateway_models(cfg) if gw.get("enabled") else []
+    return {"enabled": bool(gw.get("enabled")), "api_key": gw.get("api_key") or "",
+            "intent": gw.get("intent") or "", "models": models,
+            "account_count": len(service.gateway_accounts()),
+            "keyed_accounts": sum(1 for a in service.gateway_accounts() if a.get("from_client"))}
+
+
+@app.get("/v1/models")
+def v1_models(request: Request):
+    cfg, gw = _gateway_cfg()
+    _check_gateway_key(request, gw)
+    models = service.gateway_models(cfg)
+    return {"object": "list", "data": [
+        {"id": m["name"], "object": "model", "created": int(time.time()),
+         "owned_by": "trae", "display_name": m["display_name"]} for m in models]}
+
+
+@app.post("/v1/chat/completions")
+async def v1_chat_completions(request: Request):
+    cfg, gw = _gateway_cfg()
+    _check_gateway_key(request, gw)
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体不是合法 JSON")
+    messages = payload.get("messages") or []
+    if not messages:
+        raise HTTPException(400, "messages 不能为空")
+    stream = payload.get("stream")
+    if stream is None:
+        stream = True
+    requested = payload.get("model") or ""
+    accounts = service.gateway_accounts()
+    if not accounts:
+        raise HTTPException(400, "还没有账号，请先在面板导入（建议用 export_local.py 的 JSON 以带上真实设备指纹）")
+    device_cfg = cfg.get("device") or {}
+    try:
+        models = service.gateway_models(cfg)
+    except Exception:
+        models = []
+    model = gateway.resolve_model(requested, models, cfg)
+    intent = gw.get("intent") or "explain_code"
+    try:
+        acc, first, rest = gateway.open_stream(accounts, device_cfg, model, messages, intent, cfg)
+    except Exception as e:
+        raise HTTPException(502, "上游调用失败：{}".format(e))
+    log("网关命中账号「{}」→ 模型 {}（请求 {}）".format(
+        acc.get("label"), model, requested or "-"), "gateway")
+    if stream:
+        return StreamingResponse(gateway.openai_chunks(model, first, rest),
+                                 media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    try:
+        return gateway.collect_non_stream(model, first, rest)
+    except Exception as e:
+        raise HTTPException(502, "上游调用失败：{}".format(e))

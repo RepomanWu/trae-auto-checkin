@@ -13,6 +13,7 @@ import time
 from datetime import datetime
 
 from .api import AuthExpired, TraeClient, checkin_claim, checkin_status, user_usage
+from . import gateway
 from .config import DEFAULT_CONFIG, load_config
 from .crypto import (DEFAULT_HOST, account_label, account_region, decrypt_auth_value,
                      new_fingerprint)
@@ -69,9 +70,29 @@ def _packs_simple(packs: list) -> list:
 
 # ---- 账号导入 ----
 def import_account(blob: str, label: str = "") -> dict:
-    """按登录态密文导入/更新账号（密文来自本机 storage.json，见 export_local.py）。"""
+    """按登录态密文导入/更新账号。
+
+    blob 可以是三种形式之一：
+      1. 纯密文串（`iCubeAuthInfo://icube.cloudide` 的值）
+      2. export_local.py 导出的 JSON 对象/数组（含 blob + 真实设备指纹，推荐）
+
+    对话网关需要客户端真实设备指纹，随机指纹会被上游按风控限流，所以推荐形式 2。
+    """
     cfg = load_config()
-    auth = decrypt_auth_value(blob)
+    text = (blob or "").strip()
+    extra: dict = {}
+    if text.startswith("{") or text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                parsed = parsed[0] if parsed else {}
+            if isinstance(parsed, dict) and parsed.get("blob"):
+                extra = parsed
+                text = str(parsed["blob"]).strip()
+        except Exception:
+            extra = {}
+
+    auth = decrypt_auth_value(text)
     host = (auth.get("host") or DEFAULT_HOST).rstrip("/")
     uid = str(auth.get("userId") or "")
     fp = new_fingerprint()
@@ -83,14 +104,40 @@ def import_account(blob: str, label: str = "") -> dict:
         "refresh_token": auth.get("refreshToken") or "",
         "region": account_region(auth) or cfg.get("region_override") or "",
         "expired_at": auth.get("expiredAt") or "",
-        "device_id": fp["device_id"],
-        "machine_id": fp["machine_id"],
+        "device_id": extra.get("device_id") or fp["device_id"],
+        "machine_id": extra.get("machine_id") or fp["machine_id"],
     }
+    if extra.get("device_id") or extra.get("machine_id"):
+        account["from_client"] = True
+        for k in ("ide_version", "ide_version_code", "device_type", "os_version"):
+            if extra.get(k):
+                account[k] = extra[k]
     if not account["token"]:
         raise ValueError("登录态中未含 accessToken，请先在客户端重新登录后再导出")
     saved = upsert_account(account)
-    log("账号已导入/更新：{}（uid={}）".format(saved.get("label"), saved.get("uid")), "system")
+    log("账号已导入/更新：{}（uid={}，指纹来源={}）".format(
+        saved.get("label"), saved.get("uid"), "客户端" if account.get("from_client") else "随机"), "system")
     return saved
+
+
+def gateway_accounts() -> list:
+    """给网关用的账号顺序：优先带真实指纹的（对话接口对指纹敏感）。"""
+    accounts = load_accounts()
+    with_fp = [a for a in accounts if a.get("from_client")]
+    return with_fp + [a for a in accounts if not a.get("from_client")]
+
+
+def gateway_models(cfg: dict) -> list:
+    """汇总各账号可用模型（name -> display_name）。"""
+    device_cfg = cfg.get("device") or {}
+    out = {}
+    for a in gateway_accounts():
+        try:
+            for m in gateway.fetch_models(a, device_cfg, cfg):
+                out.setdefault(m["name"], m["display_name"])
+        except Exception as e:
+            log("获取模型列表失败（{}）：{}".format(a.get("label"), e), "system")
+    return [{"name": k, "display_name": v} for k, v in out.items()]
 
 
 # ---- 用量快照 ----

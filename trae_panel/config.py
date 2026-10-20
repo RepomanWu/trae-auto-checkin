@@ -48,6 +48,16 @@ DEFAULT_CONFIG = {
         },
         "wecom": {"enabled": False, "webhook_url": ""},
     },
+    # OpenAI 兼容网关：把账号对话能力暴露为 /v1/chat/completions
+    "gateway": {
+        "enabled": True,
+        "api_key": "",                                  # 网关访问密钥（key），留空则不校验
+        "infer_host": "https://trae-api-cn.mchost.guru",
+        "intent": "explain_code",                       # 上游 intent_name
+        "default_model": "",                            # 未匹配到模型时的兜底
+        "model_aliases": {},                            # 客户端模型名 -> 上游 model_name
+        "timeout": 300,
+    },
     # 用量/签到历史保留天数
     "history_keep_days": 90,
 }

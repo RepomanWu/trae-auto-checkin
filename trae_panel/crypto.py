@@ -96,7 +96,11 @@ def refresh_access_token(host: str, uid: str, refresh_token: str, timeout: int =
 
 
 def build_headers(account: dict, device_cfg: dict) -> dict:
-    """按账号 + 默认指纹拼出站请求头。"""
+    """按账号 + 默认指纹拼出站请求头。
+
+    账号若带了真实客户端指纹（device_id / machine_id / ide_version 等）则优先使用；
+    对话接口（gateway）对设备指纹敏感，随机指纹会被上游限流。
+    """
     token = account.get("token") or ""
     region = account.get("region") or ""
     headers = {
@@ -107,16 +111,37 @@ def build_headers(account: dict, device_cfg: dict) -> dict:
         "x-device-id": account.get("device_id") or "",
         "x-machine-id": account.get("machine_id") or "",
         "x-request-id": secrets.token_hex(16),
-        "x-ide-version": device_cfg.get("ide_version") or "3.3.67",
-        "x-ide-version-code": device_cfg.get("ide_version_code") or "20260401",
-        "x-device-type": device_cfg.get("device_type") or "linux",
-        "x-os-version": device_cfg.get("os_version") or "Linux",
+        "x-ide-version": account.get("ide_version") or device_cfg.get("ide_version") or "3.3.67",
+        "x-ide-version-code": account.get("ide_version_code") or device_cfg.get("ide_version_code") or "20260401",
+        "x-device-type": account.get("device_type") or device_cfg.get("device_type") or "linux",
+        "x-os-version": account.get("os_version") or device_cfg.get("os_version") or "Linux",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
     if region:
         headers["X-User-Region"] = region
     return headers
+
+
+def device_info_from_storage(storage: dict) -> dict:
+    """从客户端 storage.json 中提取对话接口所需的真实设备信息。"""
+    import re as _re
+    machine_id = storage.get("telemetry.machineId") or ""
+    device_id = ""
+    for key in storage:
+        m = _re.match(r"^iCubeAuthInfo://icube-dc:(\d+)$", key)
+        if m:
+            device_id = m.group(1)
+            break
+    version = (storage.get("iCubeLastVersion") or "").strip()
+    return {
+        "machine_id": machine_id,
+        "device_id": device_id,
+        "ide_version": version,
+        "ide_version_code": version.replace(".", "") if version else "",
+        "device_type": "windows",
+        "os_version": "Windows",
+    }
 
 
 def account_label(auth: dict, fallback: str) -> str:

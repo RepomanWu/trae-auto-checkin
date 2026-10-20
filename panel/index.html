@@ -75,6 +75,7 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
   <button data-v="accounts">账号</button>
   <button data-v="usage">用量</button>
   <button data-v="tasks">任务中心</button>
+  <button data-v="api">API 接入</button>
   <button data-v="logs">运行日志</button>
   <button data-v="settings">设置</button>
 </nav>
@@ -131,6 +132,35 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
       <button class="btn primary" onclick="runAllTasks()">一键执行全部任务</button>
     </div>
     <div id="taskCards"></div>
+  </section>
+
+  <section id="view-api">
+    <div class="panel">
+      <h3>OpenAI 兼容网关</h3>
+      <p class="muted" style="font-size:12px">把 Trae 账号的对话能力以 OpenAI 接口暴露出来，调用时消耗你的 Trae 积分。在 Cursor / Cherry Studio / Cline / OpenAI SDK 里填下面的 Base URL + API Key（key）+ 模型 ID 即可。</p>
+      <label><input type="checkbox" id="gwEnabled" style="width:auto"> 启用网关</label>
+      <div class="row">
+        <div><label>Base URL</label><input id="gwBase" readonly></div>
+        <div><label>API Key（网关密钥）</label><input id="gwKey" placeholder="留空 = 不校验（仅建议内网）"></div>
+      </div>
+      <div class="row">
+        <div><label>上游 intent</label><input id="gwIntent" placeholder="explain_code"></div>
+        <div><label>兜底模型</label><input id="gwDefault" placeholder="留空 = 账号首个可用模型"></div>
+      </div>
+      <div style="margin-top:12px">
+        <button class="btn primary" onclick="saveGateway()">保存网关配置（热生效）</button>
+        <button class="btn" onclick="copyText($('#gwBase').value)">复制 Base URL</button>
+        <button class="btn" onclick="copyText($('#gwKey').value||'(空，无需 key)')">复制 Key</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>可用模型 <span class="muted" style="font-size:12px" id="gwStat"></span></h3>
+      <table><thead><tr><th>模型 ID（填这个）</th><th>显示名</th><th>操作</th></tr></thead><tbody id="gwModels"></tbody></table>
+    </div>
+    <div class="panel">
+      <h3>接入示例</h3>
+      <div class="log" id="gwSnippet"></div>
+    </div>
   </section>
 
   <section id="view-logs">
@@ -227,7 +257,7 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('section').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
   $('#view-'+b.dataset.v).classList.add('active');
-  ({overview:loadOverview, accounts:loadAccounts, usage:loadUsage, tasks:loadTasks, logs:loadLogs, settings:loadConfig}[b.dataset.v]||(()=>{}))();
+  ({overview:loadOverview, accounts:loadAccounts, usage:loadUsage, tasks:loadTasks, api:loadGateway, logs:loadLogs, settings:loadConfig}[b.dataset.v]||(()=>{}))();
 });
 
 function fmt(v){ return (v===null||v===undefined||v==='')?'-':v; }
@@ -387,6 +417,48 @@ async function saveNotify(){
 async function testNotify(){ try{ const r = await api('/api/notify/test','POST'); toast(r.msg, !r.ok); }catch(e){ toast(e.message,true);} }
 
 function loadAll(){ loadOverview(); loadAccounts(); loadUsage(); loadTasks(); }
+
+async function loadGateway(){
+  try{
+    const d = await api('/api/gateway');
+    const base = location.origin + '/v1';
+    $('#gwEnabled').checked = !!d.enabled;
+    $('#gwKey').value = d.api_key || '';
+    $('#gwIntent').value = d.intent || '';
+    $('#gwBase').value = base;
+    $('#gwStat').textContent = `（账号 ${d.account_count} 个，其中带真实设备指纹 ${d.keyed_accounts} 个）`;
+    const models = d.models || [];
+    $('#gwModels').innerHTML = models.length ? models.map(m =>
+      `<tr><td><code>${m.name}</code></td><td>${m.display_name}</td>
+       <td><button class="btn" onclick="copyText('${m.name}')">复制</button></td></tr>`).join('')
+      : '<tr><td colspan="3" class="muted">暂无模型（请先在「账号」导入账号，且建议用 export_local.py 的 JSON 以带上真实设备指纹）</td></tr>';
+    const first = models[0] ? models[0].name : 'deepseek-V3';
+    const keyv = d.api_key || '<你的key>';
+    $('#gwSnippet').innerHTML =
+      `<div>curl：</div><div class="muted">curl ${base}/chat/completions \\<br>&nbsp;&nbsp;-H "Authorization: Bearer ${escapeHtml(keyv)}" -H "Content-Type: application/json" \\<br>&nbsp;&nbsp;-d '{"model":"${esc(first)}","messages":[{"role":"user","content":"hello"}]}'</div>` +
+      `<div style="margin-top:8px">Python（OpenAI SDK）：</div><div class="muted">from openai import OpenAI<br>client = OpenAI(base_url="${base}", api_key="${escapeHtml(keyv)}")<br>client.chat.completions.create(model="${esc(first)}", messages=[{"role":"user","content":"hello"}])</div>` +
+      `<div style="margin-top:8px">Cursor / Cherry Studio / Cline：Base URL 填 <b>${base}</b>，API Key 填上面的 key，模型选 ${esc(first)}</div>`;
+  }catch(e){ if(e.message!=='unauthorized') toast('网关信息加载失败：'+e.message, true); }
+}
+function esc(s){ return String(s).replace(/'/g, ""); }
+async function saveGateway(){
+  try{
+    await api('/api/config','POST',{ gateway: {
+      enabled: $('#gwEnabled').checked,
+      api_key: $('#gwKey').value.trim(),
+      intent: $('#gwIntent').value.trim() || 'explain_code',
+      default_model: $('#gwDefault').value.trim(),
+    }});
+    toast('网关配置已保存并热生效');
+    loadGateway();
+  }catch(e){ toast('保存失败：'+e.message, true); }
+}
+function copyText(t){
+  const done = () => toast('已复制：' + String(t).slice(0, 40));
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(done).catch(()=>toast('复制失败，请手动选择', true));
+  } else { toast('当前环境不支持自动复制，请手动选择', true); }
+}
 
 async function boot(){
   if(!KEY){ $('#login').classList.remove('hidden'); return; }

@@ -57,6 +57,12 @@ In the panel, open the 账号 view, paste the printed ciphertext, optionally set
 remark name, then click 导入账号. The server decrypts it and stores the credential.
 Treat `trae_export.json` as secret and delete it after importing.
 
+Important for the OpenAI-compatible gateway: paste the **whole JSON entry** from
+`trae_export.json` (it carries the client's real `machine_id` / `device_id` / `ide_version`),
+not just the bare ciphertext. The upstream chat endpoint rate-limits requests coming from
+random device fingerprints (returns 4011), so accounts without real fingerprints will fail
+on `/v1/chat/completions`.
+
 ## 3. Configure key and source
 
 Panel → 设置 (saved values take effect immediately, no restart):
@@ -72,6 +78,27 @@ Panel → 设置 (saved values take effect immediately, no restart):
 - 概览 shows account count and today's checked-in count; click 全部签到 to run once.
 - 用量 shows per-account totals and a daily trend chart.
 - 运行日志 shows task/usage/system logs.
+
+## 5. OpenAI-compatible gateway
+
+The panel also exposes the accounts' chat capability as an OpenAI-compatible API
+for Cursor / Cherry Studio / Cline / OpenAI SDK. Open 面板 →「API 接入」 and copy:
+
+- Base URL: `http://<server-ip>:7864/v1`
+- API Key: the gateway key set in that view (empty means no auth; intranet only)
+- Model ID: pick from the listed models (from your account's available model list)
+
+Endpoints: `GET /v1/models`, `POST /v1/chat/completions` (streaming and non-streaming).
+Multiple accounts are tried in order, failing over to the next one.
+
+```bash
+curl http://<server-ip>:7864/v1/chat/completions \
+  -H "Authorization: Bearer <gateway-key>" -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-V3","messages":[{"role":"user","content":"hello"}]}'
+```
+
+Requires accounts imported with the client's real device fingerprint (see step 2), and the
+gateway should not be exposed publicly without an API key.
 
 ## Troubleshooting
 
