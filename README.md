@@ -36,7 +36,8 @@ tc 加密格式），提取 accessToken / refreshToken，然后调用官方接�
 在服务器上：
 
 ```bash
-git clone <你的仓库地址> trae-checkin && cd trae-checkin   # 或直接把文件夹上传到服务器
+git clone https://github.com/RepomanWu/trae-auto-checkin.git trae-checkin
+cd trae-checkin
 ./deploy.sh
 ```
 
@@ -51,6 +52,12 @@ docker compose up -d --build
 ```
 
 > 打不开时确认服务器安全组 / 防火墙已放行对应端口。
+
+### 用 Skill 一键部署（可选）
+
+仓库内置了部署 Skill：[.trae/skills/trae-auto-checkin/SKILL.md](.trae/skills/trae-auto-checkin/SKILL.md)。
+在 Trae 中打开本仓库，或把该技能目录导入为外部技能，然后直接说「部署 trae-auto-checkin」，
+助手会按 Skill 里的步骤完成拉取、部署、导出账号与配置。
 
 ## 添加账号（关键步骤）
 
