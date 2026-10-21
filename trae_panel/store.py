@@ -95,6 +95,18 @@ def delete_account(account_id: str) -> bool:
     return True
 
 
+def set_account_paused(account_id: str, paused: bool):
+    """暂停/恢复账号：暂停只影响网关选号（不再消耗该号 token），定时任务照常执行。"""
+    accounts = load_accounts()
+    for a in accounts:
+        if a.get("id") == account_id:
+            a["paused"] = bool(paused)
+            a["paused_at"] = int(time.time()) if paused else 0
+            save_accounts(accounts)
+            return a
+    return None
+
+
 # ---- 历史 ----
 def load_history() -> dict:
     return _read_json(HISTORY_FILE, {"checkins": [], "snapshots": []})

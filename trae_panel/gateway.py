@@ -365,12 +365,17 @@ def collect_non_stream(model: str, first_events, rest_iter) -> dict:
 
 # ---- API 型平台（OpenAI 兼容上游直通）----
 def api_upstreams() -> list:
-    """返回所有 API 型平台（kind=api）的账号：每个账号即一个上游（base_url + API Key）。"""
+    """返回所有 API 型平台（kind=api）的账号：每个账号即一个上游（base_url + API Key）。
+
+    暂停（paused）的账号同样跳过，不再消耗其额度。
+    """
     from . import platforms
     from .store import load_accounts
     out = []
     for a in load_accounts():
         pid = a.get("platform") or "trae"
+        if a.get("paused"):
+            continue
         if platforms.exists(pid) and platforms.get(pid).get("kind") == "api":
             out.append(a)
     return out

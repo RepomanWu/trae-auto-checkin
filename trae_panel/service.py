@@ -148,8 +148,12 @@ def gateway_accounts() -> list:
 
     只取 trae 账号——API 型平台（DeepSeek/百炼/方舟…）走的是 /v1 的 OpenAI 直通路径，
     不该混进 Trae 上游轮转。
+
+    **暂停（paused）的账号会被排除**：暂停只影响网关选号，签到/用量/旅行等定时任务
+    仍照常执行（见 _pick）。
     """
-    accounts = [a for a in load_accounts() if (a.get("platform") or "trae") == "trae"]
+    accounts = [a for a in load_accounts()
+                if (a.get("platform") or "trae") == "trae" and not a.get("paused")]
     with_fp = [a for a in accounts if a.get("from_client")]
     return with_fp + [a for a in accounts if not a.get("from_client")]
 
@@ -189,6 +193,8 @@ def test_gateway_model(model: str) -> dict:
     device_cfg = cfg.get("device") or {}
     accounts = gateway_accounts()
     if not accounts:
+        if [a for a in load_accounts() if (a.get("platform") or "trae") == "trae"]:
+            return {"ok": False, "detail": "所有 Trae 账号都已暂停，请先在「账号」页恢复"}
         return {"ok": False, "detail": "还没有导入账号"}
     try:
         acc, first, rest = gateway.open_stream(
@@ -506,21 +512,25 @@ def overview() -> dict:
     per_plat = {}
     for a in accounts:
         pid = a.get("platform") or "trae"
-        row = per_plat.setdefault(pid, {"accounts": 0, "checked": 0})
+        row = per_plat.setdefault(pid, {"accounts": 0, "checked": 0, "paused": 0})
         row["accounts"] += 1
         if (a.get("status") or {}).get("checked_in"):
             row["checked"] += 1
+        if a.get("paused"):
+            row["paused"] += 1
     platform_rows = []
     for meta in platforms.all_platforms():
-        stat = per_plat.get(meta["id"], {"accounts": 0, "checked": 0})
+        stat = per_plat.get(meta["id"], {"accounts": 0, "checked": 0, "paused": 0})
         platform_rows.append({"id": meta["id"], "name": meta["name"],
                               "implemented": meta["implemented"],
                               "accounts": stat["accounts"], "checked": stat["checked"],
+                              "paused": stat.get("paused", 0),
                               "tasks": meta.get("tasks", []), "note": meta.get("note") or "",
                               "kind": meta.get("kind")})
     return {
         "account_count": len(accounts),
         "checked_count": checked,
+        "paused_count": sum(1 for a in accounts if a.get("paused")),
         "total_remaining": round(total_remaining, 2),
         "total_consumed": round(total_consumed, 2),
         "req_source": cfg.get("req_source", 1),

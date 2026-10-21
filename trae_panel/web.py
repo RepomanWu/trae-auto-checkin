@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from . import gateway, platforms, service
 from .config import BASE_DIR, load_config, save_config
 from .log import log, recent
-from .store import delete_account, load_accounts, load_history
+from .store import delete_account, load_accounts, load_history, set_account_paused
 
 PANEL_HTML = BASE_DIR / "panel" / "index.html"
 
@@ -145,6 +145,26 @@ def api_delete_account(account_id: str,
     if not delete_account(account_id):
         raise HTTPException(404, "账号不存在")
     return {"ok": True}
+
+
+@app.post("/api/accounts/{account_id}/pause")
+def api_pause_account(account_id: str, payload: dict = Body(default_factory=dict),
+                      x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    """暂停/恢复账号。暂停只影响网关选号（不再消耗该号 token），定时任务照常跑。"""
+    _require_key(x_admin_key)
+    body = payload or {}
+    paused = body.get("paused")
+    if paused is None:                       # 不传则取反
+        cur = next((a for a in load_accounts() if a.get("id") == account_id), None)
+        if cur is None:
+            raise HTTPException(404, "账号不存在")
+        paused = not cur.get("paused")
+    acc = set_account_paused(account_id, bool(paused))
+    if acc is None:
+        raise HTTPException(404, "账号不存在")
+    log("账号「{}」已{}（仅影响网关选号，定时任务不受影响）".format(
+        acc.get("label"), "暂停" if paused else "恢复"), "system")
+    return _public_account(acc)
 
 
 # ---- 平台内「一键登录」（设备授权，如 WorkBuddy）----
@@ -326,10 +346,14 @@ def api_gateway(x_admin_key: str | None = Header(default=None, alias="X-Admin-Ke
     ups = [{"platform": a.get("platform"), "label": a.get("label"),
             "host": a.get("host"), "models": a.get("models") or []}
            for a in gateway.api_upstreams()]
+    accounts = service.gateway_accounts()
+    blocked = gateway.api_upstreams()
+    paused = sum(1 for a in load_accounts() if a.get("paused"))
     return {"enabled": bool(gw.get("enabled")), "api_key": gw.get("api_key") or "",
             "intent": gw.get("intent") or "", "models": models, "api_upstreams": ups,
-            "account_count": len(service.gateway_accounts()),
-            "keyed_accounts": sum(1 for a in service.gateway_accounts() if a.get("from_client"))}
+            "account_count": len(accounts), "paused": paused,
+            "api_enabled": len(blocked),
+            "keyed_accounts": sum(1 for a in accounts if a.get("from_client"))}
 
 
 @app.post("/api/gateway/test-model")
@@ -395,6 +419,10 @@ async def v1_chat_completions(request: Request):
 
     accounts = service.gateway_accounts()
     if not accounts:
+        all_trae = [a for a in load_accounts() if (a.get("platform") or "trae") == "trae"]
+        if all_trae:
+            raise HTTPException(409, "所有 Trae 账号都已暂停（暂停只影响网关，签到等任务仍会照常执行）。"
+                                     "请到「账号」页点「恢复」后再调用")
         raise HTTPException(400, "还没有账号，请先在面板导入（建议用 export_local.py 的 JSON 以带上真实设备指纹）")
     device_cfg = cfg.get("device") or {}
     try:

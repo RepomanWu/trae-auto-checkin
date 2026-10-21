@@ -42,6 +42,7 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
 .tag.ok{background:rgba(34,197,94,.15);color:var(--ok)}
 .tag.bad{background:rgba(239,68,68,.15);color:var(--bad)}
 .tag.mut{background:rgba(139,152,165,.15);color:var(--muted)}
+.tag.warn{background:rgba(245,158,11,.15);color:var(--warn)}
 .muted{color:var(--muted)}
 .hidden{display:none!important}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:20}
@@ -145,6 +146,8 @@ document.documentElement.dataset.theme=light?'light':'dark';}catch(e){}})();
     </div>
     <div class="panel">
       <h3>账号列表 <span class="muted" id="accCount" style="font-size:12px;font-weight:400"></span></h3>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">「暂停」只作用于<b>对话网关</b>：暂停后网关自动跳过该账号、不再消耗它的 token；
+      签到 / 用量 / 旅行 / 活跃等定时任务<b>照常执行</b>，不受影响。</p>
       <div style="max-width:260px;margin-bottom:10px">
         <label>按平台筛选</label>
         <select id="accFilter" onchange="loadAccounts()"></select>
@@ -348,7 +351,8 @@ async function loadOverview(){
       card('剩余积分合计', o.total_remaining), card('已消耗合计', o.total_consumed),
       card('签到来源', o.req_source), card('通知', o.notify_enabled?'已开启':'未开启'),
     ].join('');
-    $('#hdrState').textContent = `账号 ${o.account_count} · 已签 ${o.checked_count}`;
+    $('#hdrState').textContent = `账号 ${o.account_count} · 已签 ${o.checked_count}`
+      + (o.paused_count ? ` · 暂停 ${o.paused_count}` : '');
     $('#ovPlatforms').innerHTML = (o.platforms||[]).map(p=>`<tr>
       <td>${p.name}</td>
       <td>${p.implemented?'<span class="tag ok">已接入</span>':'<span class="tag mut">待接入</span>'}</td>
@@ -371,13 +375,16 @@ async function loadAccounts(){
       const s = a.status||{};
       const ok = !!s.checked_in;
       const bal = (s.usage||{}).remaining;
+      const paused = !!a.paused;
       return `<tr>
         <td class="muted" style="font-size:12px">${platformName(a.platform||'trae')}</td>
-        <td>${fmt(a.label)}</td><td class="muted">${fmt(a.uid)}</td><td>${fmt(a.region)||'CN'}</td>
+        <td>${fmt(a.label)} ${paused?'<span class="tag warn">已暂停</span>':''}</td>
+        <td class="muted">${fmt(a.uid)}</td><td>${fmt(a.region)||'CN'}</td>
         <td>${ok?tag(true,'已签到'):`<span class="tag mut">未签到</span>`}</td>
         <td>${fmt(bal)}</td>
         <td>
           <button class="btn" onclick="oneCheckin('${a.id}')">签到</button>
+          <button class="btn" onclick="togglePause('${a.id}',${paused})">${paused?'恢复':'暂停'}</button>
           <button class="btn danger" onclick="delAccount('${a.id}')">删除</button>
         </td></tr>`;
     }).join('') : `<tr><td colspan="7" class="muted">${all.length?'该平台下暂无账号':'暂无账号，请在上方选择平台后导入凭据'}</td></tr>`;
@@ -520,6 +527,13 @@ async function addAccount(){
 async function delAccount(id){ if(!confirm('确认删除该账号？')) return;
   try{ await api('/api/accounts/'+id,'DELETE'); toast('已删除'); loadAccounts(); loadOverview(); }catch(e){ toast(e.message,true); } }
 async function oneCheckin(id){ try{ const r = await api('/api/accounts/'+id+'/checkin','POST'); toast(r.results[0].detail); loadAccounts(); loadOverview(); }catch(e){ toast(e.message,true);} }
+async function togglePause(id, paused){
+  try{
+    await api('/api/accounts/'+id+'/pause','POST',{paused:!paused});
+    toast(paused ? '已恢复该账号：网关会重新使用它' : '已暂停该账号：网关跳过它、不再消耗 token；签到等任务照常执行');
+    loadAccounts(); loadOverview(); loadGateway();
+  }catch(e){ toast(e.message,true); }
+}
 async function runCheckin(){ try{ const r = await api('/api/checkin','POST',{}); toast('签到完成：'+r.results.map(x=>x.label+(x.ok?'✔':'✘')).join('、')); loadAll(); }catch(e){ toast(e.message,true);} }
 async function refreshUsage(){ try{ await api('/api/usage/refresh','POST',{}); toast('用量已刷新'); loadAll(); }catch(e){ toast(e.message,true);} }
 async function runAllTasks(){
@@ -648,7 +662,8 @@ async function loadGateway(){
     $('#gwKey').value = d.api_key || '';
     $('#gwIntent').value = d.intent || '';
     $('#gwBase').value = base;
-    $('#gwStat').textContent = `（账号 ${d.account_count} 个，其中带真实设备指纹 ${d.keyed_accounts} 个）`;
+    $('#gwStat').textContent = `（可用于对话的账号 ${d.account_count} 个，其中带真实设备指纹 ${d.keyed_accounts} 个`
+      + (d.paused ? `；已暂停 ${d.paused} 个（不参与网关）` : '') + '）';
     const models = d.models || [];
     const preset = models.filter(m => m.preset);
     const custom = models.filter(m => !m.preset);
