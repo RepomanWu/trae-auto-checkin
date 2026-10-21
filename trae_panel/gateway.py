@@ -67,15 +67,20 @@ def fetch_models(account: dict, device_cfg: dict, cfg: dict, use_cache: bool = T
     return models
 
 
-def _fallback_model(gw: dict, models: list) -> str:
-    """兜底模型：配置的 default_model > 首个「内置预设」模型 > 清单首个模型。"""
+def _fallback_model(gw: dict, models: list, requested: str = "") -> str:
+    """兜底模型：配置的 default_model > 与请求名同系列的内置预设 > 首个内置预设 > 清单首个。
+
+    「同系列」= 模型名里有共同词（如 deepseek-v4-flash 与 deepseek-V3 都含 deepseek），
+    这样用户填了一个本账号没有的名字时，会尽量回到同厂商的模型上。
+    """
     fb = (gw.get("default_model") or "").strip()
     if fb:
         return fb
-    presets = [m["name"] for m in models if m.get("preset")]
-    if presets:
-        return presets[0]
-    return models[0]["name"] if models else ""
+    cand = [m for m in models if m.get("name")]
+    want = _name_tokens(requested)
+    cand.sort(key=lambda m: (0 if (want & _name_tokens(m["name"])) else 1,
+                             not m.get("preset"), m["name"]))
+    return cand[0]["name"] if cand else ""
 
 
 def resolve_model(requested: str, models: list, cfg: dict) -> str:
@@ -85,7 +90,7 @@ def resolve_model(requested: str, models: list, cfg: dict) -> str:
 
     注意：**绝不**在「清单里没有这个名字」时把原始字符串直接透传给上游——Trae 上游
     只认内置预设模型的 model_name，透传自定义名（如 `cn:xxx`）会得到
-    "the model is unknown"。清单为空/取不到时返回兜底模型，由调用方决定怎么报错。
+    "the model is unknown"。清单为空/取不到时返回空，由调用方决定怎么报错。
     """
     gw = cfg.get("gateway") or {}
     aliases = gw.get("model_aliases") or {}
@@ -106,7 +111,7 @@ def resolve_model(requested: str, models: list, cfg: dict) -> str:
         nm, dn = m["name"].lower(), m["display_name"].lower()
         if low in nm or low in dn or nm in low or dn in low:
             return m["name"]
-    return _fallback_model(gw, models)
+    return _fallback_model(gw, models, requested)
 
 
 def is_unknown_model(err) -> bool:
@@ -118,6 +123,54 @@ def is_unknown_model(err) -> bool:
 def fallback_model(cfg: dict, models: list) -> str:
     """给 web 层用的兜底模型（与 resolve_model 末段同一口径）。"""
     return _fallback_model(cfg.get("gateway") or {}, models)
+
+
+def _name_tokens(name: str) -> set:
+    """把模型名切成 >=3 字符的字母数字词（deepseek-v4-flash → {deepseek, flash}）。"""
+    out, buf = set(), ""
+    for ch in (name or "").lower():
+        if ch.isalnum():
+            buf += ch
+        else:
+            if len(buf) >= 3:
+                out.add(buf)
+            buf = ""
+    if len(buf) >= 3:
+        out.add(buf)
+    return out
+
+
+def fallback_candidates(models: list, exclude: str, cfg: dict, limit: int = 3) -> list:
+    """上游拒绝了 `exclude` 时，按优先级给出可回退的模型名（最多 limit 个）。
+
+    Trae 只认账号清单里的 model_name。用户填的名字可能不在清单里（如
+    `deepseek-v4-flash` 在部分账号上根本不存在），这时依次试清单里的模型，
+    比直接报「model is unknown」有用得多。排序：配置的兜底模型 > 同系列
+    （模型名有共同词，如 deepseek）> 内置预设 > 其他。
+    """
+    gw = cfg.get("gateway") or {}
+    out = []
+    fb = (gw.get("default_model") or "").strip()
+    if fb and fb != exclude:
+        out.append(fb)
+    want = _name_tokens(exclude)
+    cand = [m for m in models if m.get("name") and m["name"] != exclude]
+    cand.sort(key=lambda m: (0 if (want & _name_tokens(m["name"])) else 1,
+                             not m.get("preset")))
+    for m in cand:
+        n = m["name"]
+        if n not in out:
+            out.append(n)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def available_presets(models: list, limit: int = 8) -> list:
+    """当前账号可用的模型名（内置预设优先），用于报错时告诉用户真实可选项。"""
+    presets = [m["name"] for m in models if m.get("preset")]
+    rest = [m["name"] for m in models if not m.get("preset")]
+    return (presets + rest)[:limit]
 
 
 # ---- 上游对话 ----

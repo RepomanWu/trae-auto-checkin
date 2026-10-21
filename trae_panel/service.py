@@ -180,7 +180,10 @@ def gateway_models(cfg: dict) -> list:
 
 
 def test_gateway_model(model: str) -> dict:
-    """实测某个模型能否走通上游聊天接口（会消耗极少量积分）。"""
+    """实测某个模型能否走通上游聊天接口（会消耗极少量积分）。
+
+    「测试」测的是**这个名字本身**能不能用（不做兜底），否则会掩盖真实情况。
+    """
     cfg = load_config()
     gw = cfg.get("gateway") or {}
     device_cfg = cfg.get("device") or {}
@@ -193,8 +196,13 @@ def test_gateway_model(model: str) -> dict:
             gw.get("intent") or "explain_code", cfg)
     except Exception as e:
         detail = str(e)
-        if "unknown" in detail.lower():
-            detail += "（该名字更像自定义/第三方模型，上游聊天接口不接受）"
+        if gateway.is_unknown_model(e):
+            try:
+                pool = gateway.available_presets(gateway_models(cfg))
+            except Exception:
+                pool = []
+            detail += "（该名字不在本账号的可用清单里"
+            detail += "；可用：" + "、".join(pool) + "）" if pool else "）"
         return {"ok": False, "detail": detail}
     try:
         gateway.collect_non_stream(model, first, rest)   # 读完并关闭连接

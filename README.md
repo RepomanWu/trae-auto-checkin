@@ -341,6 +341,14 @@ Cline、LangChain、OpenAI SDK 等直接调用，**消耗的是你的 Trae 积�
 > 面板「API 接入」已把这两类**分成两个表格**展示（`is_preset` 字段来自上游，缺失时按名字里是否含 `/`、`:` 兜底判断），内置模型排在前。
 > 不确定某个模型能不能用时，在「API 接入」列表里点该行的「**测试**」按钮实测（消耗极少量积分）。
 
+> **填了清单里没有的模型名会怎样**：模型清单是**按账号**下发的（不同账号可能只有 4 个、
+> 也可能更多）。如果请求的名字不在该账号清单里（例如 `deepseek-v4-flash` 在部分账号上并不存在），
+> 网关会**自动回退到同系列的内置模型**（如 `deepseek-v4-flash` → `deepseek-V3`；
+> 找不到同系列就用清单里第一个），并在运行日志里记一条「模型 X 不被上游接受，回退尝试 Y」。
+> 只有所有候选都失败时才会报错，报错里会直接列出**当前账号可用的模型名**。
+>
+> 想固定映射，可在配置的 `gateway.model_aliases` 里写 `{"deepseek-v4-flash": "deepseek-V3"}`。
+
 ```bash
 curl http://<服务器IP>:7864/v1/chat/completions \
   -H "Authorization: Bearer <你的key>" -H "Content-Type: application/json" \

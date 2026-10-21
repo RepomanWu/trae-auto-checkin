@@ -409,24 +409,27 @@ async def v1_chat_completions(request: Request):
     try:
         acc, first, rest = gateway.open_stream(accounts, device_cfg, model, messages, intent, cfg)
     except Exception as e:
-        fb = gateway.fallback_model(cfg, models)
-        if fb and fb != model and gateway.is_unknown_model(e):
-            # Trae 只认内置预设模型名：自定义/第三方名被拒时，自动回退到内置模型重试一次
-            log("模型「{}」不被上游接受，自动回退到内置模型「{}」重试（请求 {}）".format(
-                model, fb, requested or "-"), "gateway")
-            model = fb
-            try:
-                acc, first, rest = gateway.open_stream(accounts, device_cfg, model, messages, intent, cfg)
-            except Exception as e2:
-                raise HTTPException(502, "上游调用失败（已尝试回退模型 {}）：{}".format(fb, e2))
-        else:
-            msg = str(e)
-            hint = ""
-            if gateway.is_unknown_model(e):
-                hint = ("｜模型「{}」不被上游聊天接口接受。带 / 或 cn: 等前缀的多为自定义/第三方模型；"
-                        "请改用内置预设模型，或在网关配置的 model_aliases 里把它映射到内置模型名，"
-                        "再用「API 接入」页的「测试」按钮逐个实测。").format(requested)
-            raise HTTPException(502, "上游调用失败：{}{}".format(msg, hint))
+        names = gateway.available_presets(models)
+        pool = names if names else []
+        last_err = e
+        acc = first = rest = None
+        if gateway.is_unknown_model(e):
+            # 用户填的名字不在该账号的可用清单里（Trae 只认清单里的 model_name）：
+            # 依次回退到清单里的内置模型，而不是直接甩一句 "model is unknown"。
+            for cand in gateway.fallback_candidates(models, model, cfg):
+                log("模型「{}」不被上游接受，回退尝试「{}」（请求 {}）".format(
+                    model, cand, requested or "-"), "gateway")
+                try:
+                    acc, first, rest = gateway.open_stream(
+                        accounts, device_cfg, cand, messages, intent, cfg)
+                    model = cand
+                    break
+                except Exception as e2:
+                    last_err = e2
+        if acc is None:
+            tip = "｜当前账号可用的模型：" + "、".join(pool) if pool else "｜当前账号模型清单为空，请重新导入 Trae 账号"
+            raise HTTPException(502, "上游调用失败：{}｜请求的模型「{}」不在可用清单里。{}".format(
+                last_err, requested or model, tip))
     log("网关命中账号「{}」→ 模型 {}（请求 {}）".format(
         acc.get("label"), model, requested or "-"), "gateway")
     if stream:
