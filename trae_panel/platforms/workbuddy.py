@@ -26,6 +26,7 @@ import random
 import secrets
 import time
 import uuid
+from datetime import datetime
 from urllib.parse import quote
 
 import requests
@@ -470,10 +471,26 @@ def _do_usage(account: dict) -> dict:
             else:
                 size = float(p.get("CapacitySize") or 0)
                 remain = float(p.get("CapacityRemain") or 0)
+            remain = max(0.0, min(remain, size)) if size else max(0.0, remain)
             total += size
             remaining += remain
-            packs.append({"desc": p.get("PackageName") or p.get("PackageCode") or "?",
-                          "end": (p.get("CycleEndTime") or "")[:10]})
+            name = (p.get("PackageName") or p.get("SubProductName")
+                    or p.get("PackageCode") or "积分包")
+            code = p.get("PackageCode") or p.get("SubProductCode") or "pack"
+            created_ms = p.get("CreateTime") or 0
+            created = (datetime.fromtimestamp(created_ms / 1000).strftime("%Y-%m-%d")
+                       if created_ms else "")
+            ded_ms = p.get("DeductionEndTime") or 0
+            if ded_ms:
+                end = datetime.fromtimestamp(ded_ms / 1000).strftime("%Y-%m-%d")
+            else:
+                end = (p.get("ExpiredTime") or p.get("PackageEndTime")
+                       or p.get("CycleEndTime") or "")[:10]
+            packs.append({"name": name, "desc": name, "kind": code,
+                          "remain": round(remain, 2), "used": round(max(0.0, size - remain), 2),
+                          "size": round(size, 2), "created": created, "end": end,
+                          "source": "WorkBuddy"})
+        packs.sort(key=lambda x: (x.get("end") or "9999", -(x.get("remain") or 0)))
     consumed = None if total < 0 else round(total - remaining, 2)
     usage = {
         "total": None if total < 0 else total,

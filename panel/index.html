@@ -70,6 +70,26 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
 .guide .glogin select{width:auto;min-width:110px}
 .guide .glogin label{margin:0;color:var(--muted);font-size:12px}
 .guide .glogin .gstate{font-size:12px;color:var(--muted)}
+.guide .glogin .gstate.ok{color:var(--ok);font-weight:600}
+.result{margin-top:12px;border-radius:8px;padding:10px 12px;font-size:13px;border:1px solid var(--line);display:none}
+.result.show{display:block}
+.result.ok{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.45);color:var(--ok)}
+.result.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.45);color:var(--bad)}
+.comp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}
+.comp-card{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:14px}
+.comp-card .ctop{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;color:var(--muted)}
+.comp-card .ctop b{color:var(--fg);font-size:12.5px;font-weight:600}
+.comp-card .big{font-size:23px;font-weight:700;margin:6px 0 0;line-height:1.25}
+.comp-card .big small{font-size:12px;font-weight:400;color:var(--muted);margin-left:6px}
+.comp-card .bar{display:flex;height:8px;border-radius:6px;overflow:hidden;background:var(--line);margin:10px 0 8px}
+.comp-card .bar span{display:block;height:100%}
+.comp-card .leg{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.comp-card .leg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.comp-card .leg b{color:var(--fg);font-weight:500}
+.comp-card .leg .cnt{float:right}
+.comp-head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+.comp-head .sub{font-size:12px;color:var(--muted);font-weight:400}
+.amt{font-variant-numeric:tabular-nums}
 select optgroup{color:var(--muted);font-size:12px}
 </style>
 <script>
@@ -158,6 +178,7 @@ document.documentElement.dataset.theme=light?'light':'dark';}catch(e){}})();
         <button class="btn" onclick="clearAccInput()">清空</button>
         <span class="muted" style="font-size:12px;margin-left:8px">凭据只在你的本机与服务器之间流转，不经过第三方。</span>
       </div>
+      <div id="accResult" class="result"></div>
     </div>
     <div class="panel">
       <h3>账号列表 <span class="muted" id="accCount" style="font-size:12px;font-weight:400"></span></h3>
@@ -176,15 +197,25 @@ document.documentElement.dataset.theme=light?'light':'dark';}catch(e){}})();
 
   <section id="view-usage">
     <div class="cards" id="usageCards"></div>
+
+    <div class="panel">
+      <h3>积分构成（按账号）</h3>
+      <p class="muted" style="font-size:12px;margin:0 0 12px">每个色段对应一个积分包，色段长度 = 该包剩余量占比；Trae 接口不提供单包数额，只显示总额。</p>
+      <div id="compCards" class="comp-grid"></div>
+    </div>
+
+    <div class="panel">
+      <h3>积分到期分布</h3>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">每个小条对应一个积分包，条的长度是从现在到它的到期日（越靠右越晚到期）；颜色区分不同积分包，鼠标悬停可看剩余量。</p>
+      <div id="expiryChart"></div>
+    </div>
+
     <div class="panel">
       <h3>积分消耗趋势（按天汇总）</h3>
       <div id="usageChart"></div>
     </div>
-    <div class="panel">
-      <h3>账号用量明细</h3>
-      <table><thead><tr><th>账号</th><th>总量</th><th>已消耗</th><th>剩余</th><th>消耗比例</th><th>积分包</th><th>更新时间</th></tr></thead>
-      <tbody id="usageBody"></tbody></table>
-    </div>
+
+    <div id="compDetails"></div>
   </section>
 
   <section id="view-tasks">
@@ -518,12 +549,17 @@ async function wbLoginTick(){
     if(r.ok){
       wbLoginStop();
       if(btn) btn.disabled = false;
-      const lb = (r.account && r.account.label) || '';
-      if(st) st.textContent = '登录成功，账号已写入：' + lb;
-      toast('WorkBuddy 登录成功：' + lb);
+      const acc = r.account || {};
+      const lb = acc.label || '';
+      if(st){ st.className = 'gstate ok'; st.textContent = '✅ 绑定成功：' + lb; }
+      toast('WorkBuddy 绑定成功：' + lb);
+      showAccResult(true, `✅ <b>绑定成功</b>：WorkBuddy / CodeBuddy　·　${escapeHtml(lb || '-')}`
+        + (acc.uid ? `（UID ${escapeHtml(String(acc.uid))}）` : '')
+        + `<div class="muted" style="font-size:12px;margin-top:4px">账号已自动写入下方列表，无需手动粘贴。可以点「签到」验证一下。</div>`);
       const f = $('#accFilter'); if(f) f.value = '';
       loadAccounts(); loadOverview(); loadTasks();
     } else if(st){
+      st.className = 'gstate';
       st.textContent = '等待登录…（' + (WB_TRIES * 2) + 's，请在新窗口完成授权）';
     }
   }catch(e){
@@ -559,19 +595,38 @@ function onPlatformChange(){
   if(ta) ta.placeholder = g.placeholder || p.import_hint || '粘贴凭据内容';
 }
 function copySample(btn){ copyText(btn.previousElementSibling.textContent); }
-function clearAccInput(){ $('#accBlob').value=''; $('#accLabel').value=''; }
+function clearAccInput(){ $('#accBlob').value=''; $('#accLabel').value=''; hideAccResult(); }
+function showAccResult(ok, html){
+  const box = $('#accResult');
+  if(!box) return;
+  box.className = 'result show ' + (ok ? 'ok' : 'err');
+  box.innerHTML = html;
+}
+function hideAccResult(){
+  const box = $('#accResult');
+  if(box){ box.className = 'result'; box.innerHTML = ''; }
+}
 async function addAccount(){
   const blob = $('#accBlob').value.trim(), label = $('#accLabel').value.trim();
   const platform = $('#accPlatform').value || 'trae';
-  if(!blob){ toast('请先粘贴凭据内容', true); return; }
+  if(!blob){ toast('请先粘贴凭据内容', true); showAccResult(false, '❌ 绑定失败：还没有粘贴凭据内容'); return; }
+  hideAccResult();
   try{
-    await api('/api/accounts','POST',{blob,label,platform});
-    toast('已导入：' + platformName(platform) + (label ? ('（'+label+'）') : ''));
+    const acc = await api('/api/accounts','POST',{blob,label,platform});
+    toast('绑定成功：' + platformName(platform));
+    showAccResult(true, `✅ <b>绑定成功</b>：${escapeHtml(platformName(platform))}`
+      + `　·　${escapeHtml(acc.label || '-')}`
+      + (acc.uid ? `（UID ${escapeHtml(String(acc.uid))}）` : '')
+      + `<div class="muted" style="font-size:12px;margin-top:4px">已加入下方账号列表`
+      + `${acc.host ? '，上游 ' + escapeHtml(acc.host) : ''}。可以点「签到」验证一下。</div>`);
     $('#accBlob').value=''; $('#accLabel').value='';
     const f = $('#accFilter');
     if(f && f.value && f.value !== platform) f.value = '';   // 别让新账号被筛选藏起来
     loadAccounts(); loadOverview(); loadTasks();
-  }catch(e){ toast('导入失败：'+e.message, true); }
+  }catch(e){
+    toast('绑定失败：'+e.message, true);
+    showAccResult(false, `❌ <b>绑定失败</b>：${escapeHtml(e.message)}`);
+  }
 }
 async function delAccount(id){ if(!confirm('确认删除该账号？')) return;
   try{ await api('/api/accounts/'+id,'DELETE'); toast('已删除'); loadAccounts(); loadOverview(); }catch(e){ toast(e.message,true); } }
@@ -592,19 +647,158 @@ async function runAllTasks(){
   }catch(e){ toast(e.message,true); }
 }
 
+// ---- 积分构成 ----
+const PALETTE = ['#8b5cf6','#ec4899','#3b82f6','#22c55e','#f59e0b','#06b6d4','#a855f7','#14b8a6','#f97316','#ef4444'];
+function fmtNum(v){
+  if(v===null || v===undefined || v==='') return '-';
+  const n = Number(v);
+  if(!isFinite(n)) return '-';
+  if(Math.abs(n) >= 1e6) return (n/1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if(Math.abs(n) >= 1000) return (n/1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(Math.round(n * 100) / 100);
+}
+function packName(p){ return (p && (p.name || p.desc)) || '积分包'; }
+
+function compCard(a){
+  const st = a.status || {}, u = st.usage || {};
+  const packs = (u.packs || []).filter(p => p && p.remain != null);
+  const groups = {};
+  packs.forEach(p => {
+    const k = packName(p);
+    if(!groups[k]) groups[k] = { name: k, remain: 0, n: 0 };
+    groups[k].remain += Number(p.remain) || 0;
+    groups[k].n += 1;
+  });
+  const list = Object.values(groups).sort((x, y) => y.remain - x.remain);
+  const sum = list.reduce((s, x) => s + x.remain, 0);
+  const total = (u.total != null) ? Number(u.total) : sum;
+  const ratio = (u.ratio != null) ? Number(u.ratio) : (total > 0 ? (total - sum) / total : null);
+  const segs = sum > 0
+    ? list.map((g, i) => `<span style="width:${(g.remain / sum * 100).toFixed(2)}%;background:${PALETTE[i % PALETTE.length]}" title="${escapeHtml(g.name)} ${fmtNum(g.remain)}"></span>`).join('')
+    : `<span style="width:100%;background:var(--accent);opacity:.35"></span>`;
+  const leg = list.length ? list.slice(0, 5).map((g, i) =>
+      `<div><i style="background:${PALETTE[i % PALETTE.length]}"></i>${escapeHtml(g.name)}${g.n > 1 ? ` ×${g.n}` : ''}
+         <span class="cnt"><b>${fmtNum(g.remain)}</b></span></div>`).join('')
+    : `<div>该平台未提供分项明细</div>`;
+  return `<div class="comp-card">
+    <div class="ctop"><b>${escapeHtml(fmt(a.label))}</b><span>${platformName(a.platform || 'trae')}${a.paused ? ' · 已暂停' : ''}</span></div>
+    <div class="big">${fmtNum(u.remaining)}<small>剩余</small></div>
+    <div class="bar">${segs}</div>
+    <div class="ctop" style="margin-bottom:6px">
+      <span>已用 ${ratio != null ? (ratio * 100).toFixed(1) + '%' : '-'}</span>
+      <span>总量 ${fmtNum(u.total)}</span></div>
+    <div class="leg">${leg}</div>
+  </div>`;
+}
+
+function renderExpiry(accounts){
+  const el = $('#expiryChart'); if(!el) return;
+  const rows = [];
+  accounts.forEach(a => {
+    const u = (a.status || {}).usage || {};
+    const ps = (u.packs || []).filter(p => p && p.end && !isNaN(Date.parse(p.end)));
+    if(ps.length) rows.push({ label: a.label || a.uid, packs: ps });
+  });
+  if(!rows.length){
+    el.innerHTML = '<div class="muted" style="font-size:12px">暂无到期信息（点「刷新用量」后出现；Trae 的积分包若未返回到期时间也不显示）</div>';
+    return;
+  }
+  const now = Date.now();
+  let minT = now, maxT = now + 7 * 86400000;
+  rows.forEach(r => r.packs.forEach(p => {
+    const t = Date.parse(p.end);
+    minT = Math.min(minT, t);
+    maxT = Math.max(maxT, t);
+  }));
+  if(maxT - minT < 86400000) maxT = minT + 86400000;
+  const W = 900, labelW = 118, padR = 14, axisH = 16;
+  const x = t => labelW + (W - labelW - padR) * (t - minT) / (maxT - minT);
+  let cy = 4;
+  const body = [];
+  const ticks = [];
+  for(let i = 0; i <= 4; i++){
+    const t = minT + (maxT - minT) * i / 4;
+    const d = new Date(t);
+    ticks.push(`<line x1="${x(t)}" y1="0" x2="${x(t)}" y2="ROWEND" stroke="var(--line)" stroke-width="1"/>`);
+    ticks.push(`<text x="${x(t)}" y="ROWEND_MARK" fill="#8b98a5" font-size="10" text-anchor="middle">${d.getMonth() + 1}-${d.getDate()}</text>`);
+  }
+  rows.forEach(r => {
+    const h = r.packs.length * 8 + 14;
+    body.push(`<text x="0" y="${cy + 11}" fill="var(--muted)" font-size="11">${escapeHtml(String(r.label).slice(0, 14))}</text>`);
+    const maxRemain = Math.max(...r.packs.map(p => Number(p.remain) || 0), 1);
+    r.packs.forEach((p, i) => {
+      const t = Math.max(Date.parse(p.end), now);
+      const x2 = x(t);
+      const x1 = x(Math.max(now, minT));
+      const w = Math.max(3, x2 - x1);
+      const remain = Number(p.remain) || 0;
+      const col = PALETTE[i % PALETTE.length];
+      const op = 0.35 + 0.65 * (remain / maxRemain);
+      body.push(`<rect x="${x1.toFixed(1)}" y="${cy + 2 + i * 8}" width="${w.toFixed(1)}" height="5" rx="2.5"
+        fill="${col}" fill-opacity="${op.toFixed(2)}"><title>${escapeHtml(packName(p))} · 剩余 ${fmtNum(p.remain)} · 到期 ${escapeHtml(p.end)}</title></rect>`);
+    });
+    cy += h;
+  });
+  const H = cy + axisH;
+  const tickStr = ticks.join('').replace(/ROWEND_MARK/g, String(H - 4)).replace(/ROWEND/g, String(cy));
+  el.innerHTML = `<svg class="chart" style="height:${Math.min(520, Math.max(110, H))}px" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    ${tickStr}${body.join('')}</svg>`;
+}
+
+function renderDetails(accounts){
+  const el = $('#compDetails'); if(!el) return;
+  const list = accounts.filter(a => {
+    const u = (a.status || {}).usage || {};
+    return (u.packs || []).length > 0;
+  });
+  if(!list.length){
+    el.innerHTML = '<div class="panel"><h3>积分包明细</h3>'
+      + '<div class="muted" style="font-size:12px">暂无明细，点「刷新用量」后显示。</div></div>';
+    return;
+  }
+  el.innerHTML = list.map(a => {
+    const u = (a.status || {}).usage || {}, st = a.status || {};
+    const packs = u.packs || [];
+    const at = st.usage_at ? new Date(st.usage_at * 1000).toLocaleString() : '-';
+    const rows = packs.map(p => `<tr>
+      <td>${escapeHtml(packName(p))}</td>
+      <td class="muted" style="font-size:12px">${escapeHtml(p.kind || '-')}</td>
+      <td class="amt">${fmtNum(p.remain)}</td>
+      <td class="amt">${fmtNum(p.used)}</td>
+      <td class="amt">${fmtNum(p.size)}</td>
+      <td class="muted">${escapeHtml(p.created || '-')}</td>
+      <td>${escapeHtml(p.end || '-')}</td></tr>`).join('');
+    return `<div class="panel">
+      <div class="comp-head"><h3 style="margin:0">${escapeHtml(fmt(a.label))}
+        <span class="sub">${platformName(a.platform || 'trae')}${a.paused ? ' · 已暂停' : ''}
+        · 剩余 ${fmtNum(u.remaining)} · 已用 ${fmtNum(u.consumed)} · 总量 ${fmtNum(u.total)}
+        · 共 ${packs.length} 个积分包 · 更新于 ${at}</span></h3></div>
+      <table><thead><tr><th>来源 / 积分包</th><th>类型</th><th>剩余</th><th>已用</th><th>总量</th><th>获得时间</th><th>到期时间</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>`;
+  }).join('');
+}
+
 async function loadUsage(){
   try{
     const list = await api('/api/accounts');
-    let total=0, used=0, left=0;
-    $('#usageBody').innerHTML = list.length? list.map(a=>{
-      const u = (a.status||{}).usage||{}; const st=(a.status||{});
-      total += Number(u.total||0); used += Number(u.consumed||0); left += Number(u.remaining||0);
-      const at = st.usage_at? new Date(st.usage_at*1000).toLocaleString():'-';
-      const packs = (u.packs||[]).map(p=>`${p.desc}${p.end?('（到期 '+p.end+'）'):''}`).join('<br>')||'-';
-      return `<tr><td>${fmt(a.label)}</td><td>${fmt(u.total)}</td><td>${fmt(u.consumed)}</td><td>${fmt(u.remaining)}</td>
-        <td>${u.ratio!=null?((u.ratio*100).toFixed(1)+'%'):'-'}</td><td style="font-size:12px">${packs}</td><td class="muted">${at}</td></tr>`;
-    }).join('') : '<tr><td colspan="7" class="muted">暂无数据</td></tr>';
-    $('#usageCards').innerHTML = [card('总量合计',total),card('已消耗合计',used),card('剩余合计',left),card('账号数',list.length)].join('');
+    let total = 0, used = 0, left = 0;
+    list.forEach(a => {
+      const u = (a.status || {}).usage || {};
+      total += Number(u.total || 0);
+      used += Number(u.consumed || 0);
+      left += Number(u.remaining || 0);
+    });
+    const withUsage = list.filter(a => {
+      const u = (a.status || {}).usage;
+      return u && (u.remaining != null || u.total != null || (u.packs || []).length > 0);
+    });
+    $('#usageCards').innerHTML = [card('总量合计', fmtNum(total)), card('已消耗合计', fmtNum(used)),
+      card('剩余合计', fmtNum(left)), card('账号数', list.length)].join('');
+    $('#compCards').innerHTML = withUsage.length ? withUsage.map(compCard).join('')
+      : '<div class="muted" style="font-size:12px">暂无数据（先点「刷新用量」）</div>';
+    renderExpiry(withUsage);
+    renderDetails(withUsage);
     const h = await api('/api/usage/history?days=30');
     renderChart('#usageChart', h.series, 'consumed', '已消耗积分');
   }catch(e){ if(e.message!=='unauthorized') toast('用量加载失败：'+e.message,true); }

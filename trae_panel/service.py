@@ -53,6 +53,11 @@ def _reward_desc(st: dict) -> str:
 
 
 def _packs_simple(packs: list) -> list:
+    """把 Trae 的积分包列表归一成统一结构（name/kind/amounts/时间）。
+
+    Trae 的接口只给「名称 + 到期时间」，不提供单包的剩余/总量，
+    所以数额字段为 None（前端会退化成「仅列名称与到期」）。
+    """
     out = []
     for p in packs or []:
         info = p.get("entitlement_base_info") or {}
@@ -63,8 +68,11 @@ def _packs_simple(packs: list) -> list:
                 end_str = datetime.fromtimestamp(int(end)).strftime("%Y-%m-%d")
             except (TypeError, ValueError):
                 end_str = ""
-        out.append({"desc": p.get("display_desc") or info.get("entitlement_id") or "?",
-                    "end": end_str})
+        name = p.get("display_desc") or info.get("entitlement_id") or "积分包"
+        out.append({"name": name, "desc": name,
+                    "kind": info.get("entitlement_id") or "trae",
+                    "remain": None, "used": None, "size": None,
+                    "created": "", "end": end_str, "source": "Trae"})
     return out
 
 

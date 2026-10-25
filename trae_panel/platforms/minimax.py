@@ -279,11 +279,17 @@ def _do_usage(account: dict) -> dict:
             iv = cur.get("current_interval_remaining_percent")
             wk = cur.get("current_weekly_remaining_percent")
             if isinstance(iv, (int, float)):
-                packs.append({"desc": "5 小时额度剩余 {}%".format(int(iv)), "end": ""})
+                packs.append({"name": "5 小时额度", "desc": "5 小时额度剩余 {}%".format(int(iv)),
+                              "kind": "quota", "remain": int(iv), "used": 100 - int(iv),
+                              "size": 100, "created": "", "end": "", "source": "MiniMax"})
             if isinstance(wk, (int, float)):
-                packs.append({"desc": "周额度剩余 {}%".format(int(wk)), "end": ""})
+                packs.append({"name": "周额度", "desc": "周额度剩余 {}%".format(int(wk)),
+                              "kind": "quota", "remain": int(wk), "used": 100 - int(wk),
+                              "size": 100, "created": "", "end": "", "source": "MiniMax"})
         elif code == 2062:
-            packs.append({"desc": "无 Token Plan（不提供数值配额）", "end": ""})
+            packs.append({"name": "无 Token Plan", "desc": "无 Token Plan（不提供数值配额）",
+                          "kind": "none", "remain": None, "used": None, "size": None,
+                          "created": "", "end": "", "source": "MiniMax"})
     except Exception:
         pass
     # 剩余积分（membership）
@@ -295,7 +301,9 @@ def _do_usage(account: dict) -> dict:
         bal = summary.get("total_remaining_amount")
         if isinstance(bal, (int, float)):
             remaining = round(float(bal), 2)
-            packs.append({"desc": "剩余积分（Credit）", "end": ""})
+            packs.append({"name": "剩余积分", "desc": "剩余积分（Credit）",
+                          "kind": "credit", "remain": remaining, "used": None,
+                          "size": None, "created": "", "end": "", "source": "MiniMax"})
     except Exception:
         pass
 
