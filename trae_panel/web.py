@@ -18,7 +18,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from . import gateway, platforms, service
 from .config import BASE_DIR, load_config, save_config
 from .log import log, recent
-from .store import delete_account, load_accounts, load_history, set_account_paused
+from .store import (delete_account, load_accounts, load_history, set_account_paused,
+                    update_account_remark)
 
 PANEL_HTML = BASE_DIR / "panel" / "index.html"
 
@@ -164,6 +165,19 @@ def api_pause_account(account_id: str, payload: dict = Body(default_factory=dict
         raise HTTPException(404, "账号不存在")
     log("账号「{}」已{}（仅影响网关选号，定时任务不受影响）".format(
         acc.get("label"), "暂停" if paused else "恢复"), "system")
+    return _public_account(acc)
+
+
+@app.post("/api/accounts/{account_id}/remark")
+def api_account_remark(account_id: str, payload: dict = Body(default_factory=dict),
+                       x_admin_key: str | None = Header(default=None, alias="X-Admin-Key")):
+    """编辑账号备注：label = 列表显示的短名；note = 自由备注（可留空）。"""
+    _require_key(x_admin_key)
+    body = payload or {}
+    acc = update_account_remark(account_id, body.get("label"), body.get("note"))
+    if acc is None:
+        raise HTTPException(404, "账号不存在")
+    log("账号备注已更新：{}".format(acc.get("label")), "system")
     return _public_account(acc)
 
 

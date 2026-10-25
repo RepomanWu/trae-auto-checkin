@@ -91,6 +91,21 @@ document.documentElement.dataset.theme=light?'light':'dark';}catch(e){}})();
   </div>
 </div>
 
+<div id="remarkModal" class="overlay hidden">
+  <div class="box" style="width:420px">
+    <h3 style="margin-top:0">编辑备注</h3>
+    <p class="muted" style="font-size:12px;margin:0 0 4px">备注只在本面板里用于区分账号，不影响签到与网关。</p>
+    <label>显示名称（列表里显示的短名）</label>
+    <input id="rmLabel" placeholder="例如 主号-Trae">
+    <label>备注（自由填写，可留空）</label>
+    <textarea id="rmNote" style="min-height:64px" placeholder="例如 会员 2026-12 到期 / 只在周末用 / 备用号"></textarea>
+    <div style="margin-top:14px;display:flex;gap:8px">
+      <button class="btn primary" style="flex:1" onclick="saveRemark()">保存</button>
+      <button class="btn" style="flex:1" onclick="closeRemark()">取消</button>
+    </div>
+  </div>
+</div>
+
 <header>
   <h1>Trae 多账号管理面板</h1>
   <span class="sp"></span>
@@ -148,9 +163,11 @@ document.documentElement.dataset.theme=light?'light':'dark';}catch(e){}})();
       <h3>账号列表 <span class="muted" id="accCount" style="font-size:12px;font-weight:400"></span></h3>
       <p class="muted" style="font-size:12px;margin:0 0 10px">「暂停」只作用于<b>对话网关</b>：暂停后网关自动跳过该账号、不再消耗它的 token；
       签到 / 用量 / 旅行 / 活跃等定时任务<b>照常执行</b>，不受影响。</p>
-      <div style="max-width:260px;margin-bottom:10px">
-        <label>按平台筛选</label>
-        <select id="accFilter" onchange="loadAccounts()"></select>
+      <div class="row" style="margin-bottom:10px">
+        <div><label>按平台筛选</label>
+          <select id="accFilter" onchange="loadAccounts()"></select></div>
+        <div><label>搜索（备注 / 显示名 / UID）</label>
+          <input id="accSearch" placeholder="输入关键词即时过滤" oninput="loadAccounts()"></div>
       </div>
       <table><thead><tr><th>平台</th><th>备注</th><th>UID</th><th>区域</th><th>今日签到</th><th>剩余积分</th><th>操作</th></tr></thead>
       <tbody id="accBody"></tbody></table>
@@ -364,31 +381,63 @@ async function loadOverview(){
 }
 function card(k,v){ return `<div class="card"><div class="k">${k}</div><div class="v">${fmt(v)}</div></div>`; }
 
+let ALL_ACCOUNTS = [], REMARK_ID = '';
 async function loadAccounts(){
   try{
     const all = await api('/api/accounts');
+    ALL_ACCOUNTS = all;
     const f = ($('#accFilter') && $('#accFilter').value) || '';
-    const list = f ? all.filter(a=>(a.platform||'trae')===f) : all;
+    const q = (($('#accSearch') && $('#accSearch').value) || '').trim().toLowerCase();
+    const hit = a => !q || [a.label, a.note, a.uid].some(v => String(v || '').toLowerCase().includes(q));
+    const list = all.filter(a => (!f || (a.platform||'trae') === f) && hit(a));
     const cnt = $('#accCount');
-    if(cnt) cnt.textContent = `（${f ? ('筛选 '+list.length+' / 共 '+all.length) : ('共 '+all.length)}）`;
+    if(cnt) cnt.textContent = `（${(f || q) ? ('筛选 '+list.length+' / 共 '+all.length) : ('共 '+all.length)}）`;
     $('#accBody').innerHTML = list.length? list.map(a=>{
       const s = a.status||{};
       const ok = !!s.checked_in;
       const bal = (s.usage||{}).remaining;
       const paused = !!a.paused;
+      const note = (a.note || '').trim();
+      const noteShort = note.length > 40 ? note.slice(0, 40) + '…' : note;
       return `<tr>
         <td class="muted" style="font-size:12px">${platformName(a.platform||'trae')}</td>
-        <td>${fmt(a.label)} ${paused?'<span class="tag warn">已暂停</span>':''}</td>
+        <td>${escapeHtml(fmt(a.label))} ${paused?'<span class="tag warn">已暂停</span>':''}
+          ${note?`<div class="muted" style="font-size:11.5px;margin-top:2px" title="${escapeHtml(note)}">${escapeHtml(noteShort)}</div>`:''}
+        </td>
         <td class="muted">${fmt(a.uid)}</td><td>${fmt(a.region)||'CN'}</td>
         <td>${ok?tag(true,'已签到'):`<span class="tag mut">未签到</span>`}</td>
         <td>${fmt(bal)}</td>
         <td>
           <button class="btn" onclick="oneCheckin('${a.id}')">签到</button>
           <button class="btn" onclick="togglePause('${a.id}',${paused})">${paused?'恢复':'暂停'}</button>
+          <button class="btn" onclick="openRemark('${a.id}')">备注</button>
           <button class="btn danger" onclick="delAccount('${a.id}')">删除</button>
         </td></tr>`;
-    }).join('') : `<tr><td colspan="7" class="muted">${all.length?'该平台下暂无账号':'暂无账号，请在上方选择平台后导入凭据'}</td></tr>`;
+    }).join('') : `<tr><td colspan="7" class="muted">${all.length?'没有匹配的账号（换个关键词或清空筛选）':'暂无账号，请在上方选择平台后导入凭据'}</td></tr>`;
   }catch(e){ if(e.message!=='unauthorized') toast('账号加载失败：'+e.message, true); }
+}
+
+// ---- 账号备注编辑 ----
+function openRemark(id){
+  const a = ALL_ACCOUNTS.find(x => x.id === id);
+  if(!a) return;
+  REMARK_ID = id;
+  $('#rmLabel').value = a.label || '';
+  $('#rmNote').value = a.note || '';
+  $('#remarkModal').classList.remove('hidden');
+  setTimeout(()=>$('#rmLabel').focus(), 30);
+}
+function closeRemark(){ $('#remarkModal').classList.add('hidden'); REMARK_ID = ''; }
+async function saveRemark(){
+  if(!REMARK_ID) return;
+  const label = $('#rmLabel').value.trim(), note = $('#rmNote').value.trim();
+  if(!label){ toast('显示名称不能为空', true); return; }
+  try{
+    await api('/api/accounts/'+REMARK_ID+'/remark','POST',{label, note});
+    closeRemark();
+    toast('备注已保存');
+    loadAccounts();
+  }catch(e){ toast('保存失败：'+e.message, true); }
 }
 
 let PLATFORMS = [];

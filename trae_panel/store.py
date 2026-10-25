@@ -63,10 +63,14 @@ def upsert_account(account: dict) -> dict:
     for i, a in enumerate(accounts):
         if (a.get("platform"), a.get("uid"), a.get("host")) == key:
             # 保留原 id/指纹/创建时间，更新凭证
-            for f in ("label", "token", "refresh_token", "region", "expired_at",
+            for f in ("token", "refresh_token", "region", "expired_at",
                       "domain", "enterprise_id", "device_token"):
                 if account.get(f):
                     a[f] = account[f]
+            # 备注名：只有「用户显式填写」或「原来没有」时才覆盖，
+            # 否则重新导入同一账号会把手动改过的备注冲掉。
+            if account.get("label") and (account.get("label_explicit") or not a.get("label")):
+                a["label"] = account["label"]
             # 只有来自客户端真实指纹的导入才覆盖设备信息（避免随机指纹盖掉真实值）
             if account.get("from_client"):
                 for f in ("device_id", "machine_id", "ide_version", "ide_version_code",
@@ -102,6 +106,21 @@ def set_account_paused(account_id: str, paused: bool):
         if a.get("id") == account_id:
             a["paused"] = bool(paused)
             a["paused_at"] = int(time.time()) if paused else 0
+            save_accounts(accounts)
+            return a
+    return None
+
+
+def update_account_remark(account_id: str, label=None, note=None):
+    """更新账号备注：label 为列表里显示的短名，note 为自由备注（都可留空不改）。"""
+    accounts = load_accounts()
+    for a in accounts:
+        if a.get("id") == account_id:
+            if label is not None and str(label).strip():
+                a["label"] = str(label).strip()
+            if note is not None:
+                a["note"] = str(note).strip()
+            a["remark_at"] = int(time.time())
             save_accounts(accounts)
             return a
     return None

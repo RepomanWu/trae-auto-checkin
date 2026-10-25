@@ -90,6 +90,7 @@ def import_account(blob: str, label: str = "", platform: str = "trae") -> dict:
             raise ValueError("「{}」的账号导入尚未接入（清单里显示为待接入）".format(meta.get("name")))
         account = ad.import_account(blob, label)
         account.setdefault("platform", platform)
+        account["label_explicit"] = bool((label or "").strip())
         saved = upsert_account(account)
         log("账号已导入/更新：{}（平台={}，uid={}）".format(
             saved.get("label"), platform, saved.get("uid")), "system")
@@ -137,6 +138,7 @@ def import_account(blob: str, label: str = "", platform: str = "trae") -> dict:
                 account[k] = extra[k]
     if not account["token"]:
         raise ValueError("登录态中未含 accessToken，请先在客户端重新登录后再导出")
+    account["label_explicit"] = bool((label or "").strip())
     saved = upsert_account(account)
     log("账号已导入/更新：{}（uid={}，指纹来源={}）".format(
         saved.get("label"), saved.get("uid"), "客户端" if account.get("from_client") else "随机"), "system")
