@@ -428,11 +428,12 @@ async function loadAccounts(){
       const ok = !!s.checked_in;
       const bal = (s.usage||{}).remaining;
       const paused = !!a.paused;
+      const pauseTip = a.paused_reason ? ` title="${escapeHtml(a.paused_reason)}"` : '';
       const note = (a.note || '').trim();
       const noteShort = note.length > 40 ? note.slice(0, 40) + '…' : note;
       return `<tr>
         <td class="muted" style="font-size:12px">${platformName(a.platform||'trae')}</td>
-        <td>${escapeHtml(fmt(a.label))} ${paused?'<span class="tag warn">已暂停</span>':''}
+        <td>${escapeHtml(fmt(a.label))} ${paused?`<span class="tag warn"${pauseTip}>已暂停</span>`:''}
           ${note?`<div class="muted" style="font-size:11.5px;margin-top:2px" title="${escapeHtml(note)}">${escapeHtml(noteShort)}</div>`:''}
         </td>
         <td class="muted">${fmt(a.uid)}</td><td>${fmt(a.region)||'CN'}</td>

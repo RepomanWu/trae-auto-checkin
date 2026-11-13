@@ -22,6 +22,7 @@ import uuid
 
 import requests
 
+from .api import _note_rate_limit, _retry_after, _wait_rate_gate
 from .crypto import build_headers
 
 INFER_HOST_DEFAULT = "https://trae-api-cn.mchost.guru"
@@ -53,8 +54,12 @@ def fetch_models(account: dict, device_cfg: dict, cfg: dict, use_cache: bool = T
     cached = _model_cache.get(key)
     if use_cache and cached and time.time() - cached["at"] < 600:
         return cached["models"]
+    _wait_rate_gate()
     r = requests.get(infer_host(cfg) + MODEL_LIST_PATH, params={"type": "chat"},
                      headers=_headers(account, device_cfg, stream=False), timeout=30)
+    if r.status_code == 429:
+        _note_rate_limit(_retry_after(r))
+        raise GatewayError("获取模型列表被限流（HTTP 429），请稍后重试")
     if r.status_code != 200:
         raise GatewayError("获取模型列表失败：HTTP {} {}".format(r.status_code, (r.text or "")[:150]))
     models = []
@@ -223,8 +228,13 @@ def chat_events(account: dict, device_cfg: dict, model_name: str, messages: list
                 intent: str, cfg: dict, timeout: int = 300):
     """生成器：向上游发起对话，逐个 yield (event, data)。"""
     body = build_body(messages, model_name, intent)
+    _wait_rate_gate()          # 签到等任务刚被 429 时，这里也要等冷却结束再打
     r = requests.post(infer_host(cfg) + CHAT_PATH, headers=_headers(account, device_cfg, True),
                       json=body, stream=True, timeout=timeout)
+    if r.status_code == 429:
+        wait = _retry_after(r)
+        _note_rate_limit(wait)
+        raise GatewayError("上游限流（HTTP 429），冷却 {:.0f}s".format(wait))
     if r.status_code != 200:
         raise GatewayError("上游 HTTP {} {}".format(r.status_code, (r.text or "")[:200]))
     event = None
@@ -272,6 +282,9 @@ def open_stream(accounts: list, device_cfg: dict, model_name: str, messages: lis
                     break
             return acc, first, it
         except Exception as e:
+            if "429" in str(e):
+                # 是出口 IP 级别的限流，换账号也会被拒：直接中止，别把全池再刷一遍
+                raise GatewayError("上游限流（429）：{}。请降低并发或稍后重试".format(e))
             last_err = e
             continue
     raise GatewayError("所有账号均失败：{}".format(last_err))

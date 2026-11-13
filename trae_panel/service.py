@@ -251,21 +251,105 @@ def _snapshot_usage(account: dict, client: TraeClient, req_source: int) -> dict:
     return status["usage"]
 
 
+# ---- 账号间限速 / 补签判断 / 登录态熔断 ----
+AUTO_PAUSE_REASON = "登录态连续失效"
+
+
+def _account_delay(cfg: dict) -> float:
+    """账号之间等待的秒数：把整点全池突发摊平，避免上游接入层按频率回 429。"""
+    raw = (cfg.get("schedule") or {}).get("account_delay", 0.8)
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = 0.8
+    return max(0.0, min(v, 30.0))
+
+
+def _pace(index: int, cfg: dict) -> None:
+    """处理第 index 个账号（从 0 起）前等待；首个账号不等待。"""
+    if index <= 0:
+        return
+    d = _account_delay(cfg)
+    if d:
+        time.sleep(d)
+
+
+def _checked_today(acc: dict) -> bool:
+    """今日是否已签到成功（用于排程「只补签」：成功过的账号不再重复请求）。"""
+    st = acc.get("status") or {}
+    if not st.get("checked_in"):
+        return False
+    try:
+        ts = float(st.get("checked_at") or 0)
+    except (TypeError, ValueError):
+        return False
+    if ts <= 0:
+        return False
+    try:
+        return datetime.fromtimestamp(ts).date() == datetime.now().date()
+    except (OSError, OverflowError, ValueError):
+        return False
+
+
+def _is_auth_error(detail: str) -> bool:
+    """从失败信息判断是不是「登录态失效」（需要重导账号，重试无意义）。"""
+    s = (detail or "").lower()
+    keys = ("登录态", "登录已失效", "未登录", "401", "unauthorized", "invalid token",
+            "token 失效", "token失效", "access_token", "refresh token")
+    return any(k in s for k in keys)
+
+
+def _note_auth_ok(acc: dict) -> None:
+    st = acc.setdefault("status", {})
+    st["auth_fail_count"] = 0
+    # 之前因登录态失效被自动暂停的，成功后自动恢复（手工暂停不受影响）
+    if acc.get("paused") and str(acc.get("paused_reason") or "").startswith(AUTO_PAUSE_REASON):
+        acc["paused"] = False
+        acc["paused_at"] = 0
+        acc["paused_reason"] = ""
+        log("账号「{}」登录态已恢复，自动取消暂停".format(acc.get("label") or acc.get("uid")), "system")
+
+
+def _note_auth_fail(acc: dict, cfg: dict) -> None:
+    """登录态连续失效达到上限后自动暂停该账号（熔断，避免每次任务都白打上游）。"""
+    st = acc.setdefault("status", {})
+    try:
+        n = int(st.get("auth_fail_count") or 0) + 1
+    except (TypeError, ValueError):
+        n = 1
+    st["auth_fail_count"] = n
+    try:
+        limit = int((cfg.get("schedule") or {}).get("auth_fail_limit", 3))
+    except (TypeError, ValueError):
+        limit = 3
+    if limit > 0 and n >= limit and not acc.get("paused"):
+        acc["paused"] = True
+        acc["paused_at"] = int(time.time())
+        acc["paused_reason"] = "{} {} 次，已自动暂停".format(AUTO_PAUSE_REASON, n)
+        log("账号「{}」{} {} 次，已自动暂停（重新导入该账号即恢复）".format(
+            acc.get("label") or acc.get("uid"), AUTO_PAUSE_REASON, n), "system")
+
+
 def refresh_usage(platform=None, account_ids=None, do_notify=False) -> list:
     cfg = load_config()
     accounts = load_accounts()
     targets = _pick(accounts, platform, account_ids, task_id="usage")
     results = []
-    for acc in targets:
+    for i, acc in enumerate(targets):
+        _pace(i, cfg)
         label = acc.get("label") or acc.get("uid")
         try:
             _dispatch_usage(acc, cfg)
+            _note_auth_ok(acc)
             results.append((label, True, "用量已刷新"))
             log("用量已刷新：{}".format(label), "usage")
         except AuthExpired as e:
+            _note_auth_fail(acc, cfg)
             results.append((label, False, str(e)))
             log("用量刷新失败：{}：{}".format(label, e), "usage")
         except Exception as e:
+            if _is_auth_error(str(e)):
+                _note_auth_fail(acc, cfg)
             results.append((label, False, "用量查询失败：{}".format(e)))
             log("用量刷新失败：{}：{}".format(label, e), "usage")
     save_accounts(accounts)
@@ -381,23 +465,47 @@ def _pick(accounts, platform, account_ids, task_id=None):
             continue
         if task_id and task_id not in (platforms.get(pid).get("tasks") or []):
             continue
+        # 登录态连续失效被「自动暂停」的账号，任务侧也跳过（重试无意义）；
+        # 手工点「暂停」的账号仍照常参与任务，两者语义不同。
+        if not account_ids and str(a.get("paused_reason") or "").startswith(AUTO_PAUSE_REASON):
+            continue
         out.append(a)
     return out
 
 
-def run_checkin(platform=None, account_ids=None, do_notify=True) -> list:
-    """对指定平台（或全部已接入平台）的账号执行签到，返回 [(label, ok, detail)]。"""
+def run_checkin(platform=None, account_ids=None, do_notify=True, retry_only=False) -> list:
+    """对指定平台（或全部已接入平台）的账号执行签到，返回 [(label, ok, detail)]。
+
+    retry_only=True 时用于**排程补签**：跳过「今天已经签到成功」的账号。
+    每日首个时点全池都未签，等价全量；后续时点只补首跑失败的账号，
+    避免整点把全池再打一遍上游。面板手动签到仍是全量（retry_only=False）。
+    """
     cfg = load_config()
     if not load_accounts():
         log("没有账号，跳过签到", "task")
         return []
     accounts = load_accounts()
     targets = _pick(accounts, platform, account_ids, task_id="checkin")
-    log("开始签到，共 {} 个账号".format(len(targets)), "task")
+    if retry_only:
+        skipped = [a for a in targets if _checked_today(a)]
+        if skipped:
+            log("签到补签：跳过 {} 个今日已签到账号".format(len(skipped)), "task")
+        targets = [a for a in targets if a not in skipped]
+    if not targets:
+        log("签到：没有待处理的账号", "task")
+        save_accounts(accounts)
+        return []
+    log("开始签到，共 {} 个账号{}".format(
+        len(targets), "（补签模式）" if retry_only else ""), "task")
     results = []
-    for acc in targets:
+    for i, acc in enumerate(targets):
+        _pace(i, cfg)
         label = acc.get("label") or acc.get("uid")
         ok, detail = _dispatch_checkin(acc, cfg)
+        if ok:
+            _note_auth_ok(acc)
+        elif _is_auth_error(detail):
+            _note_auth_fail(acc, cfg)
         results.append((label, ok, detail))
         append_checkin({"ts": time.time(), "account_id": acc.get("id"),
                         "platform": acc.get("platform") or "trae", "label": label,
@@ -407,7 +515,10 @@ def run_checkin(platform=None, account_ids=None, do_notify=True) -> list:
     save_accounts(accounts)
     prune_history(cfg.get("history_keep_days", 90))
     if do_notify:
-        send_notifications(cfg.get("notify"), results)
+        # 补签模式下只推失败项：晚上那次全是「今日已签到」时不再刷通知
+        notify_list = [r for r in results if not r[1]] if retry_only else results
+        if notify_list:
+            send_notifications(cfg.get("notify"), notify_list)
     return results
 
 
@@ -447,7 +558,8 @@ def run_task(task_id: str, platform=None, account_ids=None, do_notify=False) -> 
     cfg = load_config()
     accounts = load_accounts()
     results = []
-    for acc in _pick(accounts, platform, account_ids, task_id=task_id):
+    for i, acc in enumerate(_pick(accounts, platform, account_ids, task_id=task_id)):
+        _pace(i, cfg)
         pid = acc.get("platform") or "trae"
         meta = platforms.get(pid)
         label = acc.get("label") or acc.get("uid")
@@ -458,10 +570,14 @@ def run_task(task_id: str, platform=None, account_ids=None, do_notify=False) -> 
             continue
         try:
             ok, detail = fn(task_id, acc, cfg)
+            if ok:
+                _note_auth_ok(acc)
         except NotImplementedError:
             ok, detail = False, "「{}」不支持该任务".format(meta.get("name"))
         except Exception as e:
             ok, detail = False, "执行失败：{}".format(e)
+        if not ok and _is_auth_error(detail):
+            _note_auth_fail(acc, cfg)
         results.append((label, ok, detail))
         append_checkin({"ts": time.time(), "account_id": acc.get("id"), "platform": pid,
                         "label": label, "ok": ok, "detail": "{}：{}".format(task_id, detail)})

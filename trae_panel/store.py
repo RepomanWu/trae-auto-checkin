@@ -71,6 +71,16 @@ def upsert_account(account: dict) -> dict:
             # 否则重新导入同一账号会把手动改过的备注冲掉。
             if account.get("label") and (account.get("label_explicit") or not a.get("label")):
                 a["label"] = account["label"]
+            # 重新导入意味着用户重新拿到了有效凭据：
+            # 清掉登录态熔断计数，并解除「登录态连续失效」导致的自动暂停。
+            if account.get("token"):
+                st = a.setdefault("status", {})
+                st["auth_fail_count"] = 0
+                st["last_error"] = ""
+                if str(a.get("paused_reason") or "").startswith("登录态连续失效"):
+                    a["paused"] = False
+                    a["paused_at"] = 0
+                    a["paused_reason"] = ""
             # 只有来自客户端真实指纹的导入才覆盖设备信息（避免随机指纹盖掉真实值）
             if account.get("from_client"):
                 for f in ("device_id", "machine_id", "ide_version", "ide_version_code",

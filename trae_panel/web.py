@@ -8,6 +8,7 @@ import secrets
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
+from functools import partial
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -49,20 +50,41 @@ def configure_scheduler() -> None:
     _scheduler.remove_all_jobs()
 
     if sch.get("checkin_enabled", True):
+        jitter = _jitter(sch.get("jitter_seconds", 90))
         for t in (sch.get("checkin_times") or []):
             try:
                 hh, mm = str(t).split(":")
-                _scheduler.add_job(service.run_checkin, CronTrigger(
-                    hour=int(hh), minute=int(mm), timezone=tz),
-                    id="checkin_{}".format(t), replace_existing=True)
+                # 排程只用「补签」模式：首跑全池未签等价全量，后续时点只补失败账号
+                _scheduler.add_job(partial(service.run_checkin, retry_only=True),
+                                   CronTrigger(hour=int(hh), minute=int(mm),
+                                               timezone=tz, jitter=jitter),
+                                   id="checkin_{}".format(t), replace_existing=True,
+                                   coalesce=True, max_instances=1, misfire_grace_time=3600)
             except Exception as e:
                 log("排程解析失败（{}）：{}".format(t, e), "system")
     if sch.get("usage_enabled", True):
         minutes = int(sch.get("usage_interval_minutes") or 60)
-        _scheduler.add_job(service.refresh_usage, IntervalTrigger(minutes=minutes),
-                           id="usage_refresh", replace_existing=True)
-    log("定时调度已更新：签到={} 用量间隔={}分钟".format(
-        sch.get("checkin_times"), sch.get("usage_interval_minutes")), "system")
+        jitter = _jitter(sch.get("jitter_seconds", 90), cap=max(0, minutes * 60 - 10))
+        _scheduler.add_job(service.refresh_usage,
+                           IntervalTrigger(minutes=minutes, jitter=jitter),
+                           id="usage_refresh", replace_existing=True,
+                           coalesce=True, max_instances=1, misfire_grace_time=1800)
+    log("定时调度已更新：签到={}（补签模式，抖动{}s）用量间隔={}分钟（抖动{}s）账号间间隔={}s".format(
+        sch.get("checkin_times"), sch.get("jitter_seconds", 90),
+        sch.get("usage_interval_minutes"), sch.get("jitter_seconds", 90),
+        sch.get("account_delay", 0.8)), "system")
+
+
+def _jitter(raw, cap: int | None = None) -> int:
+    """定时任务随机抖动秒数：避免每日同一秒全池打上游。"""
+    try:
+        v = int(float(raw or 0))
+    except (TypeError, ValueError):
+        v = 0
+    v = max(0, v)
+    if cap is not None:
+        v = min(v, max(0, int(cap)))
+    return v
 
 
 @asynccontextmanager

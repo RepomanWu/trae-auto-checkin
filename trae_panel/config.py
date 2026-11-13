@@ -39,6 +39,10 @@ DEFAULT_CONFIG = {
         "usage_enabled": True,
         "usage_interval_minutes": 60,        # 余额/用量自动刷新间隔（分钟）
         "timezone": "Asia/Shanghai",
+        # 账号之间、以及定时任务触发的随机抖动（抖动后同一秒不会全池打上游）
+        "account_delay": 0.8,                # 账号间间隔（秒），0 = 不限速
+        "jitter_seconds": 90,                # 定时任务随机抖动上限（秒）
+        "auth_fail_limit": 3,                # 登录态连续失效多少次后自动暂停该账号（0 = 不暂停）
     },
     "notify": {
         "enabled": False,
