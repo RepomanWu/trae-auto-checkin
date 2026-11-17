@@ -26,6 +26,9 @@ DEFAULT_DIRS = ["Trae CN", "TRAE SOLO CN", "Trae", "TRAE SOLO"]
 def scan(app_dirs):
     appdata = os.environ.get("APPDATA", "")
     roots = [Path(appdata)] if appdata else []
+    # Linux：自定义配置目录时以 XDG_CONFIG_HOME 为准，否则 ~/.config
+    xdg = os.environ.get("XDG_CONFIG_HOME", "")
+    roots.append(Path(xdg) if xdg else Path.home() / ".config")
     # macOS 兜底
     roots.append(Path.home() / "Library" / "Application Support")
     out, seen = [], set()

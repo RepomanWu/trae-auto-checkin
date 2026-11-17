@@ -157,23 +157,43 @@ PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
    powershell -NoProfile -ExecutionPolicy Bypass -File export_local.ps1
    ```
 
-   两者都会扫描 `%APPDATA%` 下的 `Trae CN` / `TRAE SOLO CN` / `Trae` / `TRAE SOLO`，
+   两者都会扫描本机配置目录下的 `Trae CN` / `TRAE SOLO CN` / `Trae` / `TRAE SOLO`
+   （`export_local.py` 支持 Windows `%APPDATA%`、Linux `$XDG_CONFIG_HOME` 或 `~/.config`、
+   macOS `~/Library/Application Support`；`export_local.ps1` 仅限 Windows），
    并把每个账号打印成**一行 JSON**（含密文 + 真实设备指纹）。
 
 2. 复制终端里打印的整行 JSON，打开面板 →「账号」→ 粘贴到「登录态内容」→（可选）填备注名 →「导入账号」。
 
-   > 脚本只扫描**当前 Windows 账号**的 `%APPDATA%`。如果 Trae 是在别的账号下登录的，
-   > 请切到那个账号再运行，或用下面的方式 B。
+   > 脚本只扫描**当前系统用户**的配置目录。如果 Trae 是在别的用户下登录的，
+   > 请切到那个用户再运行，或用下面的方式 B。
 
 ### 方式 B：手动从 storage.json 拿（完全不用任何工具）
 
 1. 用记事本 / VS Code 打开这个文件（把 `Trae CN` 换成你实际的客户端目录名）：
 
    ```
-   %APPDATA%\Trae CN\User\globalStorage\storage.json
+   Windows：%APPDATA%\Trae CN\User\globalStorage\storage.json
+   Linux  ：~/.config/Trae CN/User/globalStorage/storage.json
+   macOS  ：~/Library/Application Support/Trae CN/User/globalStorage/storage.json
    ```
 
-   完整路径形如 `C:\Users\<你的用户名>\AppData\Roaming\Trae CN\User\globalStorage\storage.json`。
+   Windows 完整路径形如 `C:\Users\<你的用户名>\AppData\Roaming\Trae CN\User\globalStorage\storage.json`。
+
+   Linux 下直接查看（注意路径里的空格要转义）：
+
+   ```bash
+   cat ~/.config/Trae\ CN/User/globalStorage/storage.json
+   ```
+
+   自定义了配置目录（`XDG_CONFIG_HOME`）时，路径换成 `$XDG_CONFIG_HOME/Trae CN/User/globalStorage/storage.json`；
+   找不到文件就先搜一下：
+
+   ```bash
+   find ~ -name "storage.json" | grep -i trae
+   ```
+
+   > **国际版 Trae（非 CN）** 的目录名没有 ` CN` 后缀：Linux 为
+   > `~/.config/Trae/User/globalStorage/storage.json`，Windows 为 `%APPDATA%\Trae\User\globalStorage\storage.json`。
 
 2. **最省事**：直接 `Ctrl+A` 全选、`Ctrl+C` 复制**整份文件**，粘到面板「账号」→「登录态内容」→「导入账号」。
    服务端会自己从里面提取密文和真实设备指纹（`machine_id` / `device_id` / `ide_version`），无需任何脚本。

@@ -142,8 +142,12 @@ def _api_guide(platform_name: str, default_url: str, sample: str) -> dict:
 IMPORT_GUIDES = {
     "trae": {
         "steps": [
-            "在【已登录 Trae 客户端】的那台本机，用记事本打开："
-            "%APPDATA%\\Trae CN\\User\\globalStorage\\storage.json",
+            "在【已登录 Trae 客户端】的那台本机打开 storage.json："
+            "Windows %APPDATA%\\Trae CN\\User\\globalStorage\\storage.json ｜ "
+            "Linux ~/.config/Trae CN/User/globalStorage/storage.json"
+            "（自定义配置目录时为 $XDG_CONFIG_HOME/Trae CN/…）｜ "
+            "macOS ~/Library/Application Support/Trae CN/…；"
+            "国际版目录名是 Trae（没有 CN 后缀）",
             "Ctrl+A 全选、Ctrl+C 复制整份文件（推荐，本机不用装 Python）；"
             "或运行 python export_local.py 拿一行 JSON、没装 Python 时用 "
             "powershell -NoProfile -ExecutionPolicy Bypass -File export_local.ps1",
